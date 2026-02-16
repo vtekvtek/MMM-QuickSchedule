@@ -3,16 +3,114 @@ const path = require("path");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 
 const { DateTime } = require("luxon");
-
-// cron-parser export compatibility wrapper
-const cronParserPkg = require("cron-parser");
-const parseExpression =
-  cronParserPkg.parseExpression ||
-  (cronParserPkg.default && cronParserPkg.default.parseExpression) ||
-  cronParserPkg.default ||
-  cronParserPkg;
-
 const { scrapeToIcs } = require("./scraper");
+
+function parsePart(part, min, max) {
+  const out = new Set();
+
+  const addNum = (n) => {
+    if (Number.isInteger(n) && n >= min && n <= max) out.add(n);
+  };
+
+  const addRange = (a, b, step = 1) => {
+    for (let i = a; i <= b; i += step) addNum(i);
+  };
+
+  const parseToken = (tok) => {
+    // */N
+    const stepMatch = tok.match(/^\*\/(\d+)$/);
+    if (stepMatch) {
+      const step = parseInt(stepMatch[1], 10);
+      if (!step || step < 1) return;
+      for (let i = min; i <= max; i += step) addNum(i);
+      return;
+    }
+
+    // A-B(/N)
+    const rangeStepMatch = tok.match(/^(\d+)-(\d+)(?:\/(\d+))?$/);
+    if (rangeStepMatch) {
+      const a = parseInt(rangeStepMatch[1], 10);
+      const b = parseInt(rangeStepMatch[2], 10);
+      const step = rangeStepMatch[3] ? parseInt(rangeStepMatch[3], 10) : 1;
+      if (!step || step < 1) return;
+      addRange(a, b, step);
+      return;
+    }
+
+    // *
+    if (tok === "*") {
+      addRange(min, max, 1);
+      return;
+    }
+
+    // single number
+    if (/^\d+$/.test(tok)) {
+      addNum(parseInt(tok, 10));
+    }
+  };
+
+  const tokens = part.split(",");
+  for (const t of tokens) parseToken(t.trim());
+
+  const arr = Array.from(out).sort((a, b) => a - b);
+  return arr.length ? arr : null;
+}
+
+function parseCron5(expr) {
+  const parts = String(expr).trim().split(/\s+/);
+  if (parts.length !== 5) throw new Error("Cron must have 5 fields: min hour dom mon dow");
+
+  const [minP, hourP, domP, monP, dowP] = parts;
+
+  const minutes = parsePart(minP, 0, 59);
+  const hours = parsePart(hourP, 0, 23);
+  const dom = parsePart(domP, 1, 31);
+  const mon = parsePart(monP, 1, 12);
+
+  // DOW: 0-6 where 0=Sunday, 1=Monday... 6=Saturday
+  // Accept 7 as Sunday too
+  let dow = parsePart(dowP.replace(/\b7\b/g, "0"), 0, 6);
+
+  if (!minutes || !hours || !dom || !mon || !dow) {
+    throw new Error("Cron fields could not be parsed");
+  }
+
+  return { minutes, hours, dom, mon, dow };
+}
+
+function nextRunFromCron(expr, zone, fromDt) {
+  const cron = parseCron5(expr);
+  let dt = fromDt.setZone(zone).startOf("minute").plus({ minutes: 1 });
+
+  // brute force minute stepping, capped
+  // 60 days cap is plenty for typical patterns
+  const maxSteps = 60 * 24 * 60;
+
+  for (let i = 0; i < maxSteps; i++) {
+    const m = dt.minute;
+    const h = dt.hour;
+    const day = dt.day;
+    const month = dt.month;
+
+    // Luxon weekday: 1=Mon..7=Sun, convert to 0=Sun..6=Sat
+    const luxWd = dt.weekday; // 1..7
+    const wd = luxWd === 7 ? 0 : luxWd; // 0..6
+
+    if (
+      cron.minutes.includes(m) &&
+      cron.hours.includes(h) &&
+      cron.dom.includes(day) &&
+      cron.mon.includes(month) &&
+      cron.dow.includes(wd)
+    ) {
+      return dt;
+    }
+
+    dt = dt.plus({ minutes: 1 });
+  }
+
+  throw new Error("No next run found within 60 days, cron may be too restrictive");
+}
 
 module.exports = NodeHelper.create({
   start() {
@@ -47,13 +145,9 @@ module.exports = NodeHelper.create({
 
     const timezone = process.env.TIMEZONE || (this.config && this.config.timezone) || "America/Toronto";
 
-    let nextDate;
+    let next;
     try {
-      const interval = parseExpression(cronExpr, {
-        tz: timezone,
-        currentDate: new Date(),
-      });
-      nextDate = interval.next().toDate();
+      next = nextRunFromCron(cronExpr, timezone, DateTime.now().setZone(timezone));
     } catch (e) {
       this.sendSocketNotification("WEEK_ERROR", {
         reason: "cron-parse",
@@ -62,7 +156,7 @@ module.exports = NodeHelper.create({
       return;
     }
 
-    const ms = Math.max(1000, nextDate.getTime() - Date.now());
+    const ms = Math.max(1000, next.toMillis() - DateTime.now().toMillis());
 
     this.timer = setTimeout(async () => {
       await this.runScrape("cron").catch(() => null);
