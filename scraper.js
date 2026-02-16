@@ -63,7 +63,11 @@ async function findLoginFields(page) {
 
   const user = pick(candidates.user, "user") || pick(candidates.user, "name");
   const pass = pick(candidates.pass, "pass") || candidates.pass[0] || null;
-  const submit = pick(candidates.submit, "login") || pick(candidates.submit, "sign") || candidates.submit[0] || null;
+  const submit =
+    pick(candidates.submit, "login") ||
+    pick(candidates.submit, "sign") ||
+    candidates.submit[0] ||
+    null;
 
   return { user, pass, submit };
 }
@@ -91,20 +95,28 @@ async function scrapeToIcs(config) {
 
   const browser = await puppeteer.launch({
     headless: headless ? "new" : false,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    protocolTimeout: 180000,
+    slowMo: 25,
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu"
+    ],
   });
 
   const page = await browser.newPage();
   page.setDefaultTimeout(180000);
   page.setDefaultNavigationTimeout(180000);
 
+  await page.setViewport({ width: 1280, height: 720 });
+
   await page.setUserAgent(
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
   );
 
-  // 1) Login
   console.log("Going to login page...");
-  await page.goto(loginUrl, { waitUntil: "domcontentloaded", timeout: 180000 });
+  await page.goto(loginUrl, { waitUntil: "domcontentloaded" });
 
   const { user, pass, submit } = await findLoginFields(page);
   const userSel = selectorFor(user);
@@ -113,7 +125,7 @@ async function scrapeToIcs(config) {
 
   if (!userSel || !passSel || !submitSel) {
     await browser.close();
-    throw new Error("Could not identify login fields. Hardcode selectors in scraper.js using the login form HTML.");
+    throw new Error("Could not identify login fields. Hardcode selectors in scraper.js.");
   }
 
   console.log("Logging in...");
@@ -122,21 +134,19 @@ async function scrapeToIcs(config) {
   await page.focus(passSel);
   await page.keyboard.type(password, { delay: 10 });
 
-  // Click login and wait a short, deterministic delay (WebForms can be weird about navigation)
   await page.click(submitSel);
+
+  // WebForms often uses postbacks; short deterministic wait
   await new Promise((resolve) => setTimeout(resolve, 2000));
 
-  // 2) Go to schedule page with today's DateValue
   const scheduleUrl = buildScheduleUrl(techName, timezone);
   console.log("Going to schedule page...", scheduleUrl);
 
-  // Do not use networkidle here, just go and then wait for the table
-  await page.goto(scheduleUrl, { timeout: 60000 });
+  await page.goto(scheduleUrl);
 
   console.log("Waiting for GridView...");
   await page.waitForSelector("#ctl00_ContentPlaceHolder1_GridView1", { timeout: 60000 });
 
-  // 3) Scrape the schedule rows
   const rows = await page.$$eval("#ctl00_ContentPlaceHolder1_GridView1 tr", (trs) => {
     const out = [];
     for (let i = 1; i < trs.length; i++) {
@@ -153,10 +163,9 @@ async function scrapeToIcs(config) {
 
   if (!rows.length) {
     await browser.close();
-    throw new Error("No schedule rows found. Login may have failed or GridView ID changed.");
+    throw new Error("No schedule rows found. Login may have failed.");
   }
 
-  // 4) Filter to current week
   const now = DateTime.now().setZone(timezone);
   const weekStart = mondayStart(now);
   const weekEnd = weekStart.plus({ days: 7 });
@@ -169,7 +178,6 @@ async function scrapeToIcs(config) {
     .filter(Boolean)
     .filter((r) => r.dt >= weekStart && r.dt < weekEnd);
 
-  // 5) Write ICS as all-day events
   const cal = ical({ name: "Work Schedule", timezone });
 
   for (const r of weekRows) {
