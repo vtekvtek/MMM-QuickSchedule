@@ -1,0 +1,47 @@
+.qs-week {
+  width: 100%;
+}
+
+.qs-title {
+  font-size: 18px;
+  opacity: 0.85;
+  margin-bottom: 6px;
+}
+
+.qs-row {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+}
+
+.qs-cell {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(255,255,255,0.06);
+}
+
+.qs-dow {
+  font-size: 16px;
+  opacity: 0.9;
+}
+
+.qs-desc {
+  font-size: 14px;
+  opacity: 0.8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.qs-loading,
+.qs-error,
+.qs-warn {
+  font-size: 14px;
+  opacity: 0.8;
+}
+
+.qs-error {
+  opacity: 0.9;
+}

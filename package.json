@@ -1,0 +1,15 @@
+{
+  "name": "mmm-quickschedule",
+  "version": "1.0.0",
+  "description": "MagicMirror module that scrapes QuickService schedule and displays a Mon-Sun strip, also generates a local ICS file.",
+  "main": "MMM-QuickSchedule.js",
+  "keywords": ["MagicMirror", "QuickService", "schedule", "ics"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "ical-generator": "^8.1.1",
+    "luxon": "^3.5.0",
+    "puppeteer": "^23.10.4"
+  }
+}
