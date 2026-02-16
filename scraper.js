@@ -101,7 +101,7 @@ async function scrapeToIcs(config) {
       "--no-sandbox",
       "--disable-setuid-sandbox",
       "--disable-dev-shm-usage",
-      "--disable-gpu"
+      "--disable-gpu",
     ],
   });
 
@@ -115,7 +115,6 @@ async function scrapeToIcs(config) {
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
   );
 
-  console.log("Going to login page...");
   await page.goto(loginUrl, { waitUntil: "domcontentloaded" });
 
   const { user, pass, submit } = await findLoginFields(page);
@@ -128,23 +127,17 @@ async function scrapeToIcs(config) {
     throw new Error("Could not identify login fields. Hardcode selectors in scraper.js.");
   }
 
-  console.log("Logging in...");
   await page.focus(userSel);
   await page.keyboard.type(username, { delay: 10 });
   await page.focus(passSel);
   await page.keyboard.type(password, { delay: 10 });
 
   await page.click(submitSel);
-
-  // WebForms often uses postbacks; short deterministic wait
   await new Promise((resolve) => setTimeout(resolve, 2000));
 
   const scheduleUrl = buildScheduleUrl(techName, timezone);
-  console.log("Going to schedule page...", scheduleUrl);
 
   await page.goto(scheduleUrl);
-
-  console.log("Waiting for GridView...");
   await page.waitForSelector("#ctl00_ContentPlaceHolder1_GridView1", { timeout: 60000 });
 
   const rows = await page.$$eval("#ctl00_ContentPlaceHolder1_GridView1 tr", (trs) => {
@@ -211,6 +204,4 @@ async function scrapeToIcs(config) {
   };
 }
 
-module.exports = {
-  scrapeToIcs,
-};
+module.exports = { scrapeToIcs };
