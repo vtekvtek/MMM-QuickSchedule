@@ -61,13 +61,20 @@ module.exports = NodeHelper.create({
         headless: true,
       });
 
+      // Stamp successful update time (ISO string) and freshness flag
+      data.updatedAt = DateTime.now().setZone(timezone).toISO();
+      data.fresh = true;
+
       this.lastGood = data;
       this.sendSocketNotification("WEEK_DATA", data);
     } catch (e) {
       // Keep showing last good data if we have it
       if (this.lastGood) {
-        this.sendSocketNotification("WEEK_DATA", this.lastGood);
+        // Mark that this is cached data, not a fresh scrape
+        const cached = { ...this.lastGood, fresh: false };
+        this.sendSocketNotification("WEEK_DATA", cached);
       }
+
       this.sendSocketNotification("WEEK_ERROR", {
         reason,
         error: String(e && e.message ? e.message : e),
