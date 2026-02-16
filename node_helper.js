@@ -3,7 +3,15 @@ const path = require("path");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 
 const { DateTime } = require("luxon");
-const cronParser = require("cron-parser");
+
+// cron-parser export compatibility wrapper
+const cronParserPkg = require("cron-parser");
+const parseExpression =
+  cronParserPkg.parseExpression ||
+  (cronParserPkg.default && cronParserPkg.default.parseExpression) ||
+  cronParserPkg.default ||
+  cronParserPkg;
+
 const { scrapeToIcs } = require("./scraper");
 
 module.exports = NodeHelper.create({
@@ -41,7 +49,7 @@ module.exports = NodeHelper.create({
 
     let nextDate;
     try {
-      const interval = cronParser.parseExpression(cronExpr, {
+      const interval = parseExpression(cronExpr, {
         tz: timezone,
         currentDate: new Date(),
       });
@@ -58,7 +66,7 @@ module.exports = NodeHelper.create({
 
     this.timer = setTimeout(async () => {
       await this.runScrape("cron").catch(() => null);
-      this.scheduleFromCron(); // schedule the next one
+      this.scheduleFromCron();
     }, ms);
   },
 
@@ -76,14 +84,12 @@ module.exports = NodeHelper.create({
         headless: true,
       });
 
-      // Stamp successful update time (ISO string) and freshness flag
       data.updatedAt = DateTime.now().setZone(timezone).toISO();
       data.fresh = true;
 
       this.lastGood = data;
       this.sendSocketNotification("WEEK_DATA", data);
     } catch (e) {
-      // Keep showing last good data if we have it
       if (this.lastGood) {
         const cached = { ...this.lastGood, fresh: false };
         this.sendSocketNotification("WEEK_DATA", cached);
