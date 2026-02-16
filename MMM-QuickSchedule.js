@@ -1,11 +1,10 @@
 Module.register("MMM-QuickSchedule", {
   defaults: {
     title: "My Week",
-    refreshMinutes: 30,
     timezone: "America/Toronto",
     showOff: true,
     offRegex: "\\bOFF\\b",
-    maxText: 26
+    maxLines: 3
   },
 
   start() {
@@ -15,7 +14,7 @@ Module.register("MMM-QuickSchedule", {
   },
 
   getStyles() {
-    return [ "MMM-QuickSchedule.css" ];
+    return ["MMM-QuickSchedule.css"];
   },
 
   socketNotificationReceived(notification, payload) {
@@ -41,6 +40,14 @@ Module.register("MMM-QuickSchedule", {
     title.textContent = this.config.title;
     wrapper.appendChild(title);
 
+    // If we have week data and it was a successful scrape, show last updated
+    if (this.week && this.week.updatedAt && this.week.fresh !== false) {
+      const updated = document.createElement("div");
+      updated.className = "qs-updated";
+      updated.textContent = "Last updated: " + moment(this.week.updatedAt).format("MMM D, h:mm A");
+      wrapper.appendChild(updated);
+    }
+
     if (this.error && !this.week && this.error.lastGood) {
       this.week = this.error.lastGood;
     }
@@ -48,7 +55,7 @@ Module.register("MMM-QuickSchedule", {
     if (this.error && !this.week) {
       const err = document.createElement("div");
       err.className = "qs-error";
-      err.textContent = this.error.error || "Error loading schedule";
+      err.textContent = (this.error && this.error.error) ? this.error.error : "Error loading schedule";
       wrapper.appendChild(err);
       return wrapper;
     }
@@ -64,14 +71,13 @@ Module.register("MMM-QuickSchedule", {
     const row = document.createElement("div");
     row.className = "qs-row";
 
-    // Build 7-day frame from the scraper output
-    // If scraper returns fewer than 7 rows, we still show placeholders
     const byDate = new Map();
     if (Array.isArray(this.week.days)) {
       for (const d of this.week.days) byDate.set(d.date, d);
     }
 
     const start = this.week.weekStart ? moment(this.week.weekStart) : moment().startOf("isoWeek");
+    const todayKey = moment().format("YYYY-MM-DD");
 
     for (let i = 0; i < 7; i++) {
       const m = start.clone().add(i, "days");
@@ -87,6 +93,11 @@ Module.register("MMM-QuickSchedule", {
       const cell = document.createElement("div");
       cell.className = "qs-cell";
 
+      // Highlight today
+      if (dateKey === todayKey) {
+        cell.classList.add("qs-today");
+      }
+
       const dowEl = document.createElement("div");
       dowEl.className = "qs-dow";
       dowEl.textContent = dow;
@@ -94,7 +105,8 @@ Module.register("MMM-QuickSchedule", {
 
       const desc = document.createElement("div");
       desc.className = "qs-desc";
-      desc.textContent = String(descRaw).slice(0, this.config.maxText);
+      desc.style.webkitLineClamp = String(this.config.maxLines);
+      desc.textContent = String(descRaw);
       cell.appendChild(desc);
 
       row.appendChild(cell);
