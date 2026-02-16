@@ -3,6 +3,7 @@ const path = require("path");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 
 const { DateTime } = require("luxon");
+const cronParser = require("cron-parser");
 const { scrapeToIcs } = require("./scraper");
 
 module.exports = NodeHelper.create({
@@ -19,8 +20,8 @@ module.exports = NodeHelper.create({
       // Run once on startup
       this.runScrape("startup").catch(() => null);
 
-      // Schedule daily at 18:00
-      this.scheduleDaily(18, 0);
+      // Schedule using refreshCron if provided
+      this.scheduleFromCron();
 
       return;
     }
@@ -30,20 +31,34 @@ module.exports = NodeHelper.create({
     }
   },
 
-  scheduleDaily(hour, minute) {
+  scheduleFromCron() {
     if (this.timer) clearTimeout(this.timer);
 
-    const zone = process.env.TIMEZONE || (this.config && this.config.timezone) || "America/Toronto";
-    const now = DateTime.now().setZone(zone);
+    const cronExpr = this.config && this.config.refreshCron;
+    if (!cronExpr) return;
 
-    let next = now.set({ hour, minute, second: 0, millisecond: 0 });
-    if (next <= now) next = next.plus({ days: 1 });
+    const timezone = process.env.TIMEZONE || (this.config && this.config.timezone) || "America/Toronto";
 
-    const ms = next.toMillis() - now.toMillis();
+    let nextDate;
+    try {
+      const interval = cronParser.parseExpression(cronExpr, {
+        tz: timezone,
+        currentDate: new Date(),
+      });
+      nextDate = interval.next().toDate();
+    } catch (e) {
+      this.sendSocketNotification("WEEK_ERROR", {
+        reason: "cron-parse",
+        error: "Invalid refreshCron: " + String(e && e.message ? e.message : e),
+      });
+      return;
+    }
+
+    const ms = Math.max(1000, nextDate.getTime() - Date.now());
 
     this.timer = setTimeout(async () => {
-      await this.runScrape("daily-18:00").catch(() => null);
-      this.scheduleDaily(hour, minute); // reschedule next day
+      await this.runScrape("cron").catch(() => null);
+      this.scheduleFromCron(); // schedule the next one
     }, ms);
   },
 
@@ -70,7 +85,6 @@ module.exports = NodeHelper.create({
     } catch (e) {
       // Keep showing last good data if we have it
       if (this.lastGood) {
-        // Mark that this is cached data, not a fresh scrape
         const cached = { ...this.lastGood, fresh: false };
         this.sendSocketNotification("WEEK_DATA", cached);
       }
