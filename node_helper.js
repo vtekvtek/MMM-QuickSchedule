@@ -1,47 +1,54 @@
 const NodeHelper = require("node_helper");
-require("dotenv").config();
+const path = require("path");
+require("dotenv").config({ path: path.join(__dirname, ".env") });
+
 const { DateTime } = require("luxon");
 const { scrapeToIcs } = require("./scraper");
 
 module.exports = NodeHelper.create({
   start() {
     this.config = null;
-    this.lastData = null;
-    this.running = false;
+    this.lastGood = null;
+    this.timer = null;
   },
 
   socketNotificationReceived(notification, payload) {
     if (notification === "CONFIG") {
       this.config = payload;
-      this.kick();
+
+      // Run once on startup
+      this.runScrape("startup").catch(() => null);
+
+      // Schedule daily at 18:00
+      this.scheduleDaily(18, 0);
+
       return;
     }
 
     if (notification === "FORCE_REFRESH") {
-      this.kick(true);
-      return;
+      this.runScrape("manual").catch(() => null);
     }
   },
 
-  async kick(force = false) {
-    if (!this.config) return;
-    if (this.running) return;
+  scheduleDaily(hour, minute) {
+    if (this.timer) clearTimeout(this.timer);
 
-    const intervalMin = Number(this.config.refreshMinutes || 30);
-    const now = DateTime.now().setZone(this.config.timezone || "America/Toronto");
+    const zone = process.env.TIMEZONE || (this.config && this.config.timezone) || "America/Toronto";
+    const now = DateTime.now().setZone(zone);
 
-    const shouldRun =
-      force ||
-      !this.lastData ||
-      !this.lastRunAt ||
-      now.diff(this.lastRunAt, "minutes").minutes >= intervalMin;
+    let next = now.set({ hour, minute, second: 0, millisecond: 0 });
+    if (next <= now) next = next.plus({ days: 1 });
 
-    if (!shouldRun && this.lastData) {
-      this.sendSocketNotification("WEEK_DATA", this.lastData);
-      return;
-    }
+    const ms = next.toMillis() - now.toMillis();
 
-    this.running = true;
+    this.timer = setTimeout(async () => {
+      await this.runScrape("daily-18:00").catch(() => null);
+      this.scheduleDaily(hour, minute); // reschedule next day
+    }, ms);
+  },
+
+  async runScrape(reason) {
+    const timezone = process.env.TIMEZONE || (this.config && this.config.timezone) || "America/Toronto";
 
     try {
       const data = await scrapeToIcs({
@@ -50,22 +57,21 @@ module.exports = NodeHelper.create({
         loginUrl: process.env.QS_LOGIN_URL,
         techName: process.env.TECH_NAME,
         outIcs: process.env.OUT_ICS,
-        timezone: process.env.TIMEZONE || this.config.timezone || "America/Toronto",
+        timezone,
         headless: true,
       });
 
-      this.lastRunAt = now;
-      this.lastData = data;
-
+      this.lastGood = data;
       this.sendSocketNotification("WEEK_DATA", data);
     } catch (e) {
-      const err = {
+      // Keep showing last good data if we have it
+      if (this.lastGood) {
+        this.sendSocketNotification("WEEK_DATA", this.lastGood);
+      }
+      this.sendSocketNotification("WEEK_ERROR", {
+        reason,
         error: String(e && e.message ? e.message : e),
-        lastGood: this.lastData || null,
-      };
-      this.sendSocketNotification("WEEK_ERROR", err);
-    } finally {
-      this.running = false;
+      });
     }
   },
 });
