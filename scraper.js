@@ -100,14 +100,15 @@ async function scrapeToIcs(config) {
   });
 
   const page = await browser.newPage();
-  page.setDefaultTimeout(60000);
+  page.setDefaultTimeout(180000);
+  page.setDefaultNavigationTimeout(180000);
 
   await page.setUserAgent(
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
   );
 
   // 1) Login
-  await page.goto(loginUrl, { waitUntil: "networkidle2" });
+  await page.goto(loginUrl, { waitUntil: "domcontentloaded", timeout: 180000 });
 
   const { user, pass, submit } = await findLoginFields(page);
   const userSel = selectorFor(user);
@@ -124,14 +125,15 @@ async function scrapeToIcs(config) {
   await page.focus(passSel);
   await page.keyboard.type(password, { delay: 10 });
 
-  await Promise.all([
-    page.waitForNavigation({ waitUntil: "networkidle2" }).catch(() => null),
-    page.click(submitSel),
+  await Promise.race([
+    page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 45000 }).catch(() => null),
+    page.waitForTimeout(2000)
   ]);
 
   // 2) Go to schedule page with today's DateValue
   const scheduleUrl = buildScheduleUrl(techName, timezone);
-  await page.goto(scheduleUrl, { waitUntil: "networkidle2" });
+  await page.goto(scheduleUrl, { waitUntil: "domcontentloaded", timeout: 180000 });
+  await page.waitForSelector("#ctl00_ContentPlaceHolder1_GridView1", { timeout: 180000 });
 
   // 3) Scrape the schedule rows
   const rows = await page.$$eval("#ctl00_ContentPlaceHolder1_GridView1 tr", (trs) => {
@@ -202,4 +204,10 @@ async function scrapeToIcs(config) {
 
 module.exports = {
   scrapeToIcs,
+
+console.log("Going to login page…");
+console.log("Logging in…");
+console.log("Going to schedule page…", scheduleUrl);
+console.log("Waiting for GridView…");
+
 };
