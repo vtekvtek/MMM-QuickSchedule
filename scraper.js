@@ -1,5 +1,5 @@
 const puppeteer = require("puppeteer");
-const ical = require("ical-generator");
+const ical = require("ical-generator").default;
 const { DateTime } = require("luxon");
 const fs = require("fs");
 const path = require("path");
