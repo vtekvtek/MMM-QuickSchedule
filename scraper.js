@@ -204,10 +204,4 @@ async function scrapeToIcs(config) {
 
 module.exports = {
   scrapeToIcs,
-
-console.log("Going to login page…");
-console.log("Logging in…");
-console.log("Going to schedule page…", scheduleUrl);
-console.log("Waiting for GridView…");
-
 };
