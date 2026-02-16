@@ -21,13 +21,10 @@ function buildScheduleUrl(techName, zone) {
 }
 
 function escIdForCss(id) {
-  // Escape CSS selector special chars for ids
   return String(id).replace(/([ #;?%&,.+*~\':"!^$[\]()=>|\/@])/g, "\\$1");
 }
 
 async function findLoginFields(page) {
-  // Broad detection of visible login fields.
-  // If this fails, we can hardcode based on your login form HTML.
   const candidates = await page.evaluate(() => {
     const inputs = Array.from(document.querySelectorAll("input"));
     const visible = (el) => {
@@ -56,19 +53,17 @@ async function findLoginFields(page) {
   const pick = (arr, hint) => {
     const h = hint.toLowerCase();
     return (
-      arr.find((x) => (x.id || "").toLowerCase().includes(h) || (x.name || "").toLowerCase().includes(h) || (x.placeholder || "").toLowerCase().includes(h)) ||
-      arr[0] ||
-      null
+      arr.find((x) =>
+        (x.id || "").toLowerCase().includes(h) ||
+        (x.name || "").toLowerCase().includes(h) ||
+        (x.placeholder || "").toLowerCase().includes(h)
+      ) || arr[0] || null
     );
   };
 
   const user = pick(candidates.user, "user") || pick(candidates.user, "name");
   const pass = pick(candidates.pass, "pass") || candidates.pass[0] || null;
-  const submit =
-    pick(candidates.submit, "login") ||
-    pick(candidates.submit, "sign") ||
-    candidates.submit[0] ||
-    null;
+  const submit = pick(candidates.submit, "login") || pick(candidates.submit, "sign") || candidates.submit[0] || null;
 
   return { user, pass, submit };
 }
@@ -108,6 +103,7 @@ async function scrapeToIcs(config) {
   );
 
   // 1) Login
+  console.log("Going to login page...");
   await page.goto(loginUrl, { waitUntil: "domcontentloaded", timeout: 180000 });
 
   const { user, pass, submit } = await findLoginFields(page);
@@ -120,20 +116,25 @@ async function scrapeToIcs(config) {
     throw new Error("Could not identify login fields. Hardcode selectors in scraper.js using the login form HTML.");
   }
 
+  console.log("Logging in...");
   await page.focus(userSel);
   await page.keyboard.type(username, { delay: 10 });
   await page.focus(passSel);
   await page.keyboard.type(password, { delay: 10 });
 
-  await Promise.race([
-    page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 45000 }).catch(() => null),
-    page.waitForTimeout(2000)
-  ]);
+  // Click login and wait a short, deterministic delay (WebForms can be weird about navigation)
+  await page.click(submitSel);
+  await new Promise((resolve) => setTimeout(resolve, 2000));
 
   // 2) Go to schedule page with today's DateValue
   const scheduleUrl = buildScheduleUrl(techName, timezone);
-  await page.goto(scheduleUrl, { waitUntil: "domcontentloaded", timeout: 180000 });
-  await page.waitForSelector("#ctl00_ContentPlaceHolder1_GridView1", { timeout: 180000 });
+  console.log("Going to schedule page...", scheduleUrl);
+
+  // Do not use networkidle here, just go and then wait for the table
+  await page.goto(scheduleUrl, { timeout: 60000 });
+
+  console.log("Waiting for GridView...");
+  await page.waitForSelector("#ctl00_ContentPlaceHolder1_GridView1", { timeout: 60000 });
 
   // 3) Scrape the schedule rows
   const rows = await page.$$eval("#ctl00_ContentPlaceHolder1_GridView1 tr", (trs) => {
