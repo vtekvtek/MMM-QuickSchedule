@@ -5,7 +5,13 @@
 .qs-title {
   font-size: 18px;
   opacity: 0.85;
-  margin-bottom: 6px;
+  margin-bottom: 2px;
+}
+
+.qs-updated {
+  font-size: 13px;
+  opacity: 0.7;
+  margin-bottom: 8px;
 }
 
 .qs-row {
@@ -17,22 +23,41 @@
 .qs-cell {
   flex: 1;
   min-width: 0;
-  padding: 6px 8px;
-  border-radius: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
   background: rgba(255,255,255,0.06);
 }
 
 .qs-dow {
   font-size: 16px;
+  font-weight: 600;
   opacity: 0.9;
+  margin-bottom: 4px;
 }
 
 .qs-desc {
   font-size: 14px;
-  opacity: 0.8;
-  white-space: nowrap;
+  opacity: 0.85;
+
+  /* Allow wrapping */
+  white-space: normal;
   overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.2;
+
+  /* Multi-line clamp (line count controlled in JS via webkitLineClamp) */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+}
+
+/* Highlight today */
+.qs-today {
+  background: rgba(255,255,255,0.16);
+}
+
+.qs-today .qs-dow,
+.qs-today .qs-desc {
+  color: #ffffff;
+  opacity: 1;
 }
 
 .qs-loading,
