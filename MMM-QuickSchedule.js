@@ -41,12 +41,17 @@ Module.register("MMM-QuickSchedule", {
     wrapper.appendChild(title);
 
     // If we have week data and it was a successful scrape, show last updated
-    if (this.week && this.week.updatedAt && this.week.fresh !== false) {
-      const updated = document.createElement("div");
-      updated.className = "qs-updated";
-      updated.textContent = "Last updated: " + moment(this.week.updatedAt).format("MMM D, h:mm A");
-      wrapper.appendChild(updated);
-    }
+   if (this.week && this.week.updatedAt) {
+    const updated = document.createElement("div");
+
+    const when = moment(this.week.updatedAt).format("MMM D, h:mm A");
+    const status = (this.week.fresh === false) ? "cached" : "live";
+
+    updated.className = "qs-updated" + (status === "cached" ? " qs-updated-cached" : "");
+    updated.textContent = "Last updated: " + when + " (" + status + ")";
+    wrapper.appendChild(updated);
+  }
+
 
     if (this.error && !this.week && this.error.lastGood) {
       this.week = this.error.lastGood;
