@@ -67,6 +67,18 @@
   opacity: 1;
 }
 
+.qs-sat .qs-dow,
+.qs-sat .qs-date {
+  color: #2f80ff;
+  opacity: 1;
+}
+
+.qs-sun .qs-dow,
+.qs-sun .qs-date {
+  color: #ff3b3b;
+  opacity: 1;
+}
+
 .qs-loading,
 .qs-error,
 .qs-warn {
