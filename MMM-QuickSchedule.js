@@ -98,6 +98,10 @@ Module.register("MMM-QuickSchedule", {
       const cell = document.createElement("div");
       cell.className = "qs-cell";
 
+      const isoDow = m.isoWeekday(); // 1=Mon ... 6=Sat ... 7=Sun
+      if (isoDow === 6) cell.classList.add("qs-sat");
+      if (isoDow === 7) cell.classList.add("qs-sun");
+
       // Highlight today
       if (dateKey === todayKey) {
         cell.classList.add("qs-today");
