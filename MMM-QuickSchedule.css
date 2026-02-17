@@ -70,3 +70,7 @@
 .qs-error {
   opacity: 0.9;
 }
+
+.qs-updated-cached {
+  opacity: 0.55;
+}
