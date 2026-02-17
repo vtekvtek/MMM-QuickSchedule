@@ -13,9 +13,9 @@ function parseMdyDate(mdy, zone) {
   return d.isValid ? d : null;
 }
 
-function buildScheduleUrl(techName, zone) {
-  const today = DateTime.now().setZone(zone);
-  const dateValue = encodeURIComponent(today.toFormat("M/d/yyyy"));
+function buildScheduleUrl(techName, zone, baseDate) {
+  const dt = baseDate ? baseDate.setZone(zone) : DateTime.now().setZone(zone);
+  const dateValue = encodeURIComponent(dt.toFormat("M/d/yyyy"));
   const nameSelected = encodeURIComponent(techName);
   return `https://schedule.quickservice.com/SingleTechScheduleList.aspx?NameSelected=${nameSelected}&DateValue=${dateValue}`;
 }
@@ -87,11 +87,16 @@ async function scrapeToIcs(config) {
     outIcs,
     timezone,
     headless = true,
+    baseDateISO = null,
   } = config;
 
   if (!username || !password || !loginUrl || !techName || !outIcs || !timezone) {
     throw new Error("Missing required config for scraper");
   }
+
+  const baseDate = baseDateISO
+    ? DateTime.fromISO(baseDateISO, { zone: timezone })
+    : DateTime.now().setZone(timezone);
 
   const browser = await puppeteer.launch({
     headless: headless ? "new" : false,
@@ -135,7 +140,7 @@ async function scrapeToIcs(config) {
   await page.click(submitSel);
   await new Promise((resolve) => setTimeout(resolve, 2000));
 
-  const scheduleUrl = buildScheduleUrl(techName, timezone);
+  const scheduleUrl = buildScheduleUrl(techName, timezone, baseDate);
 
   await page.goto(scheduleUrl);
   await page.waitForSelector("#ctl00_ContentPlaceHolder1_GridView1", { timeout: 60000 });
@@ -159,28 +164,52 @@ async function scrapeToIcs(config) {
     throw new Error("No schedule rows found. Login may have failed.");
   }
 
-  const now = DateTime.now().setZone(timezone);
-  const weekStart = mondayStart(now);
+  // Build monthDays map keyed by YYYY-MM-DD
+  const monthDays = new Map();
+  for (const r of rows) {
+    const dt = parseMdyDate(r.date, timezone);
+    if (!dt) continue;
+    const iso = dt.toISODate();
+    monthDays.set(iso, {
+      date: iso,
+      dow: dt.toFormat("ccc"),
+      desc: r.desc,
+      isOff: /\bOFF\b/i.test(r.desc),
+    });
+  }
+
+  // Selected week is based on baseDate
+  const weekStart = mondayStart(baseDate);
   const weekEnd = weekStart.plus({ days: 7 });
 
-  const weekRows = rows
-    .map((r) => {
-      const dt = parseMdyDate(r.date, timezone);
-      return dt ? { ...r, dt } : null;
-    })
-    .filter(Boolean)
-    .filter((r) => r.dt >= weekStart && r.dt < weekEnd);
+  // Build 7-day week array from monthDays (placeholders if missing)
+  const weekDays = [];
+  for (let i = 0; i < 7; i++) {
+    const dt = weekStart.plus({ days: i });
+    const iso = dt.toISODate();
+    const item = monthDays.get(iso);
 
+    weekDays.push(
+      item || {
+        date: iso,
+        dow: dt.toFormat("ccc"),
+        desc: "—",
+        isOff: false,
+      }
+    );
+  }
+
+  // Write ICS for the selected week (all-day events)
   const cal = ical({ name: "Work Schedule", timezone });
 
-  for (const r of weekRows) {
-    const isOff = /\bOFF\b/i.test(r.desc);
+  for (const d of weekDays) {
+    const dt = DateTime.fromISO(d.date, { zone: timezone });
     cal.createEvent({
-      start: r.dt.toJSDate(),
-      end: r.dt.plus({ days: 1 }).toJSDate(),
+      start: dt.toJSDate(),
+      end: dt.plus({ days: 1 }).toJSDate(),
       allDay: true,
-      summary: isOff ? "OFF" : "Work",
-      description: r.desc,
+      summary: d.isOff ? "OFF" : "Work",
+      description: d.desc,
     });
   }
 
@@ -192,15 +221,11 @@ async function scrapeToIcs(config) {
   return {
     scheduleUrl,
     monthRowCount: rows.length,
-    weekRowCount: weekRows.length,
+    weekRowCount: weekDays.length,
     weekStart: weekStart.toISODate(),
     outIcs,
-    days: weekRows.map((r) => ({
-      dow: r.dt.toFormat("ccc"),
-      date: r.dt.toISODate(),
-      desc: r.desc,
-      isOff: /\bOFF\b/i.test(r.desc),
-    })),
+    days: weekDays,
+    monthDays: Array.from(monthDays.values()),
   };
 }
 
