@@ -5,6 +5,7 @@ require("dotenv").config({ path: path.join(__dirname, ".env") });
 const { DateTime } = require("luxon");
 const { scrapeToIcs } = require("./scraper");
 
+// Minimal 5-field cron scheduler (minute hour dom mon dow)
 function parsePart(part, min, max) {
   const out = new Set();
 
@@ -17,7 +18,6 @@ function parsePart(part, min, max) {
   };
 
   const parseToken = (tok) => {
-    // */N
     const stepMatch = tok.match(/^\*\/(\d+)$/);
     if (stepMatch) {
       const step = parseInt(stepMatch[1], 10);
@@ -26,7 +26,6 @@ function parsePart(part, min, max) {
       return;
     }
 
-    // A-B(/N)
     const rangeStepMatch = tok.match(/^(\d+)-(\d+)(?:\/(\d+))?$/);
     if (rangeStepMatch) {
       const a = parseInt(rangeStepMatch[1], 10);
@@ -37,19 +36,17 @@ function parsePart(part, min, max) {
       return;
     }
 
-    // *
     if (tok === "*") {
       addRange(min, max, 1);
       return;
     }
 
-    // single number
     if (/^\d+$/.test(tok)) {
       addNum(parseInt(tok, 10));
     }
   };
 
-  const tokens = part.split(",");
+  const tokens = String(part).split(",");
   for (const t of tokens) parseToken(t.trim());
 
   const arr = Array.from(out).sort((a, b) => a - b);
@@ -67,14 +64,11 @@ function parseCron5(expr) {
   const dom = parsePart(domP, 1, 31);
   const mon = parsePart(monP, 1, 12);
 
-  // DOW: 0-6 where 0=Sunday, 1=Monday... 6=Saturday
-  // Accept 7 as Sunday too
-  let dow = parsePart(dowP.replace(/\b7\b/g, "0"), 0, 6);
+  // DOW: allow 7 as Sunday, convert to 0
+  let dowNorm = String(dowP).replace(/\b7\b/g, "0");
+  const dow = parsePart(dowNorm, 0, 6);
 
-  if (!minutes || !hours || !dom || !mon || !dow) {
-    throw new Error("Cron fields could not be parsed");
-  }
-
+  if (!minutes || !hours || !dom || !mon || !dow) throw new Error("Cron fields could not be parsed");
   return { minutes, hours, dom, mon, dow };
 }
 
@@ -82,10 +76,7 @@ function nextRunFromCron(expr, zone, fromDt) {
   const cron = parseCron5(expr);
   let dt = fromDt.setZone(zone).startOf("minute").plus({ minutes: 1 });
 
-  // brute force minute stepping, capped
-  // 60 days cap is plenty for typical patterns
-  const maxSteps = 60 * 24 * 60;
-
+  const maxSteps = 60 * 24 * 60; // 60 days
   for (let i = 0; i < maxSteps; i++) {
     const m = dt.minute;
     const h = dt.hour;
@@ -93,8 +84,7 @@ function nextRunFromCron(expr, zone, fromDt) {
     const month = dt.month;
 
     // Luxon weekday: 1=Mon..7=Sun, convert to 0=Sun..6=Sat
-    const luxWd = dt.weekday; // 1..7
-    const wd = luxWd === 7 ? 0 : luxWd; // 0..6
+    const wd = dt.weekday === 7 ? 0 : dt.weekday;
 
     if (
       cron.minutes.includes(m) &&
@@ -105,7 +95,6 @@ function nextRunFromCron(expr, zone, fromDt) {
     ) {
       return dt;
     }
-
     dt = dt.plus({ minutes: 1 });
   }
 
@@ -126,7 +115,7 @@ module.exports = NodeHelper.create({
       // Run once on startup
       this.runScrape("startup").catch(() => null);
 
-      // Schedule using refreshCron if provided
+      // Schedule from refreshCron (if provided)
       this.scheduleFromCron();
 
       return;
@@ -167,6 +156,15 @@ module.exports = NodeHelper.create({
   async runScrape(reason) {
     const timezone = process.env.TIMEZONE || (this.config && this.config.timezone) || "America/Toronto";
 
+    // Saturday logic: after the scheduled scrape, show next week by overwriting work.ics
+    // We do it on Saturday only when the reason is "cron" or "manual" or "startup" too,
+    // because you said you want next week once the work week is done.
+    const today = DateTime.now().setZone(timezone);
+    const isSaturday = today.weekday === 6;
+
+    // Base date controls which week we output
+    const baseDateISO = isSaturday ? today.plus({ days: 7 }).toISODate() : null;
+
     try {
       const data = await scrapeToIcs({
         username: process.env.QS_USERNAME,
@@ -176,6 +174,7 @@ module.exports = NodeHelper.create({
         outIcs: process.env.OUT_ICS,
         timezone,
         headless: true,
+        baseDateISO, // null = this week, Saturday = next week
       });
 
       data.updatedAt = DateTime.now().setZone(timezone).toISO();
