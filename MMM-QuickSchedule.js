@@ -108,6 +108,12 @@ Module.register("MMM-QuickSchedule", {
       dowEl.textContent = dow;
       cell.appendChild(dowEl);
 
+      const dateEl = document.createElement("div");
+      dateEl.className = "qs-date";
+      dateEl.textContent = m.format("MMM D");
+      cell.appendChild(dateEl);
+
+
       const desc = document.createElement("div");
       desc.className = "qs-desc";
       desc.style.webkitLineClamp = String(this.config.maxLines);
