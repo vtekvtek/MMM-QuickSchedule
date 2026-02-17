@@ -55,6 +55,7 @@
 }
 
 .qs-today .qs-dow,
+.qs-today .qs-date,
 .qs-today .qs-desc {
   color: #ffffff;
   opacity: 1;
@@ -74,3 +75,10 @@
 .qs-updated-cached {
   opacity: 0.55;
 }
+
+.qs-date {
+  font-size: 12px;
+  opacity: 0.7;
+  margin-bottom: 4px;
+}
+
