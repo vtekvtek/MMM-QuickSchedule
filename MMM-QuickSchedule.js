@@ -140,9 +140,12 @@ Module.register("MMM-QuickSchedule", {
       if (isoDow === 6) cell.classList.add("qs-sat");
       if (isoDow === 7) cell.classList.add("qs-sun");
 
-      // Highlight today (always)
-      if (dateKey === todayKey) {
-        cell.classList.add("qs-today");
+      // Highlight today (only on weekdays)
+      const highlightToday = !isWeekendNow;
+
+      // Highlight today only when viewing the current week
+      if (highlightToday && dateKey === todayKey) {
+      cell.classList.add("qs-today");
       }
 
       const dowEl = document.createElement("div");
