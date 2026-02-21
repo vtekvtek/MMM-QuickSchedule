@@ -101,6 +101,23 @@ function nextRunFromCron(expr, zone, fromDt) {
   throw new Error("No next run found within 60 days, cron may be too restrictive");
 }
 
+function mergeDaysByDate(daysA, daysB) {
+  const map = new Map();
+
+  const addAll = (arr) => {
+    if (!Array.isArray(arr)) return;
+    for (const d of arr) {
+      if (!d || !d.date) continue;
+      map.set(String(d.date), d);
+    }
+  };
+
+  addAll(daysA);
+  addAll(daysB);
+
+  return Array.from(map.values()).sort((x, y) => String(x.date).localeCompare(String(y.date)));
+}
+
 module.exports = NodeHelper.create({
   start() {
     this.config = null;
@@ -117,7 +134,6 @@ module.exports = NodeHelper.create({
 
       // Schedule from refreshCron (if provided)
       this.scheduleFromCron();
-
       return;
     }
 
@@ -156,29 +172,49 @@ module.exports = NodeHelper.create({
   async runScrape(reason) {
     const timezone = process.env.TIMEZONE || (this.config && this.config.timezone) || "America/Toronto";
 
-    // Saturday logic: after the scheduled scrape, show next week by overwriting work.ics
-    // We do it on Saturday only when the reason is "cron" or "manual" or "startup" too,
-    // because you said you want next week once the work week is done.
-    const today = DateTime.now().setZone(timezone);
-    const isSaturday = today.weekday === 6;
-
-    // Base date controls which week we output
-    const baseDateISO = isSaturday ? today.plus({ days: 7 }).toISODate() : null;
+    // Always scrape current month plus next month
+    const now = DateTime.now().setZone(timezone);
+    const thisMonthBase = now.toISODate(); // any date in current month
+    const nextMonthBase = now.plus({ months: 1 }).startOf("month").toISODate(); // first of next month
 
     try {
-      const data = await scrapeToIcs({
-        username: process.env.QS_USERNAME,
-        password: process.env.QS_PASSWORD,
-        loginUrl: process.env.QS_LOGIN_URL,
-        techName: process.env.TECH_NAME,
-        outIcs: process.env.OUT_ICS,
-        timezone,
-        headless: true,
-        baseDateISO, // null = this week, Saturday = next week
-      });
+      const [cur, nxt] = await Promise.all([
+        scrapeToIcs({
+          username: process.env.QS_USERNAME,
+          password: process.env.QS_PASSWORD,
+          loginUrl: process.env.QS_LOGIN_URL,
+          techName: process.env.TECH_NAME,
+          outIcs: process.env.OUT_ICS,
+          timezone,
+          headless: true,
+          baseDateISO: thisMonthBase,
+        }),
+        scrapeToIcs({
+          username: process.env.QS_USERNAME,
+          password: process.env.QS_PASSWORD,
+          loginUrl: process.env.QS_LOGIN_URL,
+          techName: process.env.TECH_NAME,
+          outIcs: process.env.OUT_ICS,
+          timezone,
+          headless: true,
+          baseDateISO: nextMonthBase,
+        }),
+      ]);
 
-      data.updatedAt = DateTime.now().setZone(timezone).toISO();
-      data.fresh = true;
+      const mergedDays = mergeDaysByDate(cur.days, nxt.days);
+
+      const data = {
+        ...cur,
+        // Prefer merged days over week-only days
+        days: mergedDays,
+        // Week start in your UI should be Monday, so use ISO week start
+        weekStart: now.startOf("week").plus({ days: 1 }).toISODate(), // Luxon default week start can vary, force Monday
+        updatedAt: DateTime.now().setZone(timezone).toISO(),
+        fresh: true,
+        scrapeMode: "month+next",
+        baseDateISO: thisMonthBase,
+        nextMonthBaseISO: nextMonthBase,
+      };
 
       this.lastGood = data;
       this.sendSocketNotification("WEEK_DATA", data);
