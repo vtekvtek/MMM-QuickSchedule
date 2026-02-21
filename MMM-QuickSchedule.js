@@ -93,11 +93,12 @@ Module.register("MMM-QuickSchedule", {
     const isWeekendNow = (isoDowNow === 6 || isoDowNow === 7);
 
     let start;
+
     if (isWeekendNow) {
-      // Sat/Sun: start from today (rolling 7-day view)
-      start = now.clone().startOf("day");
+      // Sat/Sun: show NEXT ISO week (Mon-Sun)
+      start = now.clone().add(1, "week").startOf("isoWeek");
     } else {
-      // Mon-Fri: show the current ISO week (Mon-Sun)
+      // Mon-Fri: show THIS ISO week (Mon-Sun)
       start = now.clone().startOf("isoWeek");
     }
 
