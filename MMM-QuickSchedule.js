@@ -24,6 +24,7 @@ Module.register("MMM-QuickSchedule", {
       this.updateDom();
       return;
     }
+
     if (notification === "WEEK_ERROR") {
       this.error = payload;
       this.updateDom();
@@ -40,18 +41,18 @@ Module.register("MMM-QuickSchedule", {
     title.textContent = this.config.title;
     wrapper.appendChild(title);
 
-    // If we have week data and it was a successful scrape, show last updated
-   if (this.week && this.week.updatedAt) {
-    const updated = document.createElement("div");
+    // Last updated
+    if (this.week && this.week.updatedAt) {
+      const updated = document.createElement("div");
+      const when = moment(this.week.updatedAt).format("MMM D, h:mm A");
+      const status = (this.week.fresh === false) ? "cached" : "live";
 
-    const when = moment(this.week.updatedAt).format("MMM D, h:mm A");
-    const status = (this.week.fresh === false) ? "cached" : "live";
+      updated.className =
+        "qs-updated" + (status === "cached" ? " qs-updated-cached" : "");
 
-    updated.className = "qs-updated" + (status === "cached" ? " qs-updated-cached" : "");
-    updated.textContent = "Last updated: " + when + " (" + status + ")";
-    wrapper.appendChild(updated);
-  }
-
+      updated.textContent = "Last updated: " + when + " (" + status + ")";
+      wrapper.appendChild(updated);
+    }
 
     if (this.error && !this.week && this.error.lastGood) {
       this.week = this.error.lastGood;
@@ -60,7 +61,10 @@ Module.register("MMM-QuickSchedule", {
     if (this.error && !this.week) {
       const err = document.createElement("div");
       err.className = "qs-error";
-      err.textContent = (this.error && this.error.error) ? this.error.error : "Error loading schedule";
+      err.textContent =
+        (this.error && this.error.error)
+          ? this.error.error
+          : "Error loading schedule";
       wrapper.appendChild(err);
       return wrapper;
     }
@@ -78,10 +82,15 @@ Module.register("MMM-QuickSchedule", {
 
     const byDate = new Map();
     if (Array.isArray(this.week.days)) {
-      for (const d of this.week.days) byDate.set(d.date, d);
+      for (const d of this.week.days) {
+        byDate.set(d.date, d);
+      }
     }
 
-    const start = this.week.weekStart ? moment(this.week.weekStart) : moment().startOf("isoWeek");
+    const start = this.week.weekStart
+      ? moment(this.week.weekStart)
+      : moment().startOf("isoWeek");
+
     const todayKey = moment().format("YYYY-MM-DD");
 
     for (let i = 0; i < 7; i++) {
@@ -91,26 +100,30 @@ Module.register("MMM-QuickSchedule", {
 
       const item = byDate.get(dateKey);
       const descRaw = item ? item.desc : "—";
-      const isOff = item ? item.isOff : new RegExp(this.config.offRegex, "i").test(descRaw);
+      const isOff = item
+        ? item.isOff
+        : new RegExp(this.config.offRegex, "i").test(descRaw);
 
       if (!this.config.showOff && isOff) continue;
 
       const cell = document.createElement("div");
-      // --- classify shift text and add style classes ---
+      cell.className = "qs-cell";
+
+      // --- classify shift type ---
       const descText = String(descRaw || "").trim();
 
       if (isOff) {
-      cell.classList.add("qs-off");
+        cell.classList.add("qs-off");
       } else if (/\b(helpdesk|service)\b/i.test(descText)) {
-      cell.classList.add("qs-home");     // Work-from-home / helpdesk / service
+        cell.classList.add("qs-home");
       } else if (/\binstall\b/i.test(descText)) {
-      cell.classList.add("qs-install");  // Install days
+        cell.classList.add("qs-install");
       } else {
-      cell.classList.add("qs-other");    // Anything else (fallback)
+        cell.classList.add("qs-other");
       }
-      cell.className = "qs-cell";
 
-      const isoDow = m.isoWeekday(); // 1=Mon ... 6=Sat ... 7=Sun
+      // Weekend coloring
+      const isoDow = m.isoWeekday();
       if (isoDow === 6) cell.classList.add("qs-sat");
       if (isoDow === 7) cell.classList.add("qs-sun");
 
@@ -128,7 +141,6 @@ Module.register("MMM-QuickSchedule", {
       dateEl.className = "qs-date";
       dateEl.textContent = m.format("MMM D");
       cell.appendChild(dateEl);
-
 
       const desc = document.createElement("div");
       desc.className = "qs-desc";
