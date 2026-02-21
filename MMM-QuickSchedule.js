@@ -87,27 +87,23 @@ Module.register("MMM-QuickSchedule", {
       }
     }
 
+    // --- Rolling-weekend start logic (what you asked for) ---
     const now = moment().tz(this.config.timezone);
-    const isWeekendNow = (now.isoWeekday() === 6 || now.isoWeekday() === 7);
+    const isoDowNow = now.isoWeekday(); // 1=Mon ... 7=Sun
+    const isWeekendNow = (isoDowNow === 6 || isoDowNow === 7);
 
     let start;
-    
-      if (this.week.weekStart) {
-    start = moment(this.week.weekStart);
+    if (isWeekendNow) {
+      // Sat/Sun: start from today (rolling 7-day view)
+      start = now.clone().startOf("day");
     } else {
-    start = now.clone().startOf("isoWeek");
+      // Mon-Fri: show the current ISO week (Mon-Sun)
+      start = now.clone().startOf("isoWeek");
     }
 
-      if (isWeekendNow) {
-    title.textContent = this.config.title + " (Next Week)";
-    }
-
-    // --- FIX: use configured timezone for "now" and disable today highlight on weekends ---
-    const now = moment().tz(this.config.timezone);
-    const isWeekendNow = (now.isoWeekday() === 6 || now.isoWeekday() === 7);
-    const highlightToday = !isWeekendNow;
+    // Today highlight should work every day (including weekends)
     const todayKey = now.format("YYYY-MM-DD");
-    // --- end fix ---
+    // --- end rolling-weekend logic ---
 
     for (let i = 0; i < 7; i++) {
       const m = start.clone().add(i, "days");
@@ -138,16 +134,15 @@ Module.register("MMM-QuickSchedule", {
         cell.classList.add("qs-other");
       }
 
-      // Weekend coloring (leave as-is)
+      // Weekend coloring (based on the tile date, not "today")
       const isoDow = m.isoWeekday();
       if (isoDow === 6) cell.classList.add("qs-sat");
       if (isoDow === 7) cell.classList.add("qs-sun");
 
-      // --- FIX: Highlight today only if enabled (Mon-Fri) ---
-      if (highlightToday && dateKey === todayKey) {
+      // Highlight today (always)
+      if (dateKey === todayKey) {
         cell.classList.add("qs-today");
       }
-      // --- end fix ---
 
       const dowEl = document.createElement("div");
       dowEl.className = "qs-dow";
