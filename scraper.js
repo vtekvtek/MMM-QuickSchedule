@@ -88,10 +88,17 @@ async function scrapeToIcs(config) {
     timezone,
     headless = true,
     baseDateISO = null,
+
+    // NEW:
+    // If false, we scrape and return data but do not write ICS.
+    writeIcs = true,
   } = config;
 
-  if (!username || !password || !loginUrl || !techName || !outIcs || !timezone) {
+  if (!username || !password || !loginUrl || !techName || !timezone) {
     throw new Error("Missing required config for scraper");
+  }
+  if (writeIcs && !outIcs) {
+    throw new Error("Missing outIcs while writeIcs=true");
   }
 
   const baseDate = baseDateISO
@@ -178,9 +185,13 @@ async function scrapeToIcs(config) {
     });
   }
 
-  // Selected week is based on baseDate
+  // Build sorted array for the whole month view
+  const monthDaysArr = Array.from(monthDays.values()).sort((a, b) =>
+    String(a.date).localeCompare(String(b.date))
+  );
+
+  // Selected week is based on baseDate (still useful for UI)
   const weekStart = mondayStart(baseDate);
-  const weekEnd = weekStart.plus({ days: 7 });
 
   // Build 7-day week array from monthDays (placeholders if missing)
   const weekDays = [];
@@ -199,33 +210,44 @@ async function scrapeToIcs(config) {
     );
   }
 
-  // Write ICS for the selected week (all-day events)
-  const cal = ical({ name: "Work Schedule", timezone });
+  // Write ICS (optional)
+  if (writeIcs) {
+    const cal = ical({ name: "Work Schedule", timezone });
 
-  for (const d of weekDays) {
-    const dt = DateTime.fromISO(d.date, { zone: timezone });
-    cal.createEvent({
-      start: dt.toJSDate(),
-      end: dt.plus({ days: 1 }).toJSDate(),
-      allDay: true,
-      summary: d.isOff ? "OFF" : "Work",
-      description: d.desc,
-    });
+    for (const d of weekDays) {
+      const dt = DateTime.fromISO(d.date, { zone: timezone });
+      cal.createEvent({
+        start: dt.toJSDate(),
+        end: dt.plus({ days: 1 }).toJSDate(),
+        allDay: true,
+        summary: d.isOff ? "OFF" : "Work",
+        description: d.desc,
+      });
+    }
+
+    fs.mkdirSync(path.dirname(outIcs), { recursive: true });
+    fs.writeFileSync(outIcs, cal.toString(), "utf8");
   }
-
-  fs.mkdirSync(path.dirname(outIcs), { recursive: true });
-  fs.writeFileSync(outIcs, cal.toString(), "utf8");
 
   await browser.close();
 
+  // IMPORTANT CHANGE:
+  // Return month days in `days`, so the MM front-end can pick any 7-day window.
   return {
     scheduleUrl,
     monthRowCount: rows.length,
+
+    // still keep week info for compatibility/debug
     weekRowCount: weekDays.length,
     weekStart: weekStart.toISODate(),
-    outIcs,
-    days: weekDays,
-    monthDays: Array.from(monthDays.values()),
+
+    outIcs: writeIcs ? outIcs : null,
+
+    // CHANGED:
+    days: monthDaysArr,
+
+    // keep these for debugging if you want
+    weekDays,
   };
 }
 
