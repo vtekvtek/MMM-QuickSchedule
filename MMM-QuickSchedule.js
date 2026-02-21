@@ -87,9 +87,20 @@ Module.register("MMM-QuickSchedule", {
       }
     }
 
-    const start = this.week.weekStart
-      ? moment(this.week.weekStart)
-      : moment().startOf("isoWeek");
+    const now = moment().tz(this.config.timezone);
+    const isWeekendNow = (now.isoWeekday() === 6 || now.isoWeekday() === 7);
+
+    let start;
+    
+      if (this.week.weekStart) {
+    start = moment(this.week.weekStart);
+    } else {
+    start = now.clone().startOf("isoWeek");
+    }
+
+      if (isWeekendNow) {
+    title.textContent = this.config.title + " (Next Week)";
+    }
 
     // --- FIX: use configured timezone for "now" and disable today highlight on weekends ---
     const now = moment().tz(this.config.timezone);
