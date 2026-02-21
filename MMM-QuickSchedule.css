@@ -1,142 +1,165 @@
-.qs-week {
-  width: 100%;
-}
+Module.register("MMM-QuickSchedule", {
+  defaults: {
+    title: "My Week",
+    timezone: "America/Toronto",
+    showOff: true,
+    offRegex: "\\bOFF\\b",
+    maxLines: 3
+  },
 
-.qs-title {
-  font-size: 18px;
-  opacity: 0.85;
-  margin-bottom: 2px;
-}
+  start() {
+    this.week = null;
+    this.error = null;
+    this.sendSocketNotification("CONFIG", this.config);
+  },
 
-.qs-updated {
-  font-size: 13px;
-  opacity: 0.7;
-  margin-bottom: 8px;
-}
+  getStyles() {
+    return ["MMM-QuickSchedule.css"];
+  },
 
-.qs-row {
-  display: flex;
-  gap: 12px;
-  width: 100%;
-}
+  socketNotificationReceived(notification, payload) {
+    if (notification === "WEEK_DATA") {
+      this.week = payload;
+      this.error = null;
+      this.updateDom();
+      return;
+    }
 
-.qs-cell {
-  flex: 1;
-  min-width: 0;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: rgba(255,255,255,0.06);
+    if (notification === "WEEK_ERROR") {
+      this.error = payload;
+      this.updateDom();
+      return;
+    }
+  },
 
-  /* Prevent layout shift, keep borders symmetrical */
-  border-left: 4px solid transparent;
-  border-right: 4px solid transparent;
-}
+  getDom() {
+    const wrapper = document.createElement("div");
+    wrapper.className = "qs-week";
 
-.qs-dow {
-  font-size: 16px;
-  font-weight: 600;
-  opacity: 0.9;
-  margin-bottom: 0;
-}
+    const title = document.createElement("div");
+    title.className = "qs-title";
+    title.textContent = this.config.title;
+    wrapper.appendChild(title);
 
-.qs-date {
-  font-size: 12px;
-  opacity: 0.7;
-  margin-bottom: 6px;
-}
+    // Last updated
+    if (this.week && this.week.updatedAt) {
+      const updated = document.createElement("div");
+      const when = moment(this.week.updatedAt).format("MMM D, h:mm A");
+      const status = (this.week.fresh === false) ? "cached" : "live";
 
-.qs-desc {
-  font-size: 14px;
-  opacity: 0.85;
+      updated.className =
+        "qs-updated" + (status === "cached" ? " qs-updated-cached" : "");
 
-  /* Allow wrapping */
-  white-space: normal;
-  overflow: hidden;
-  line-height: 1.2;
+      updated.textContent = "Last updated: " + when + " (" + status + ")";
+      wrapper.appendChild(updated);
+    }
 
-  /* Make long city/number strings wrap instead of spilling out */
-  overflow-wrap: anywhere;
-  word-break: break-word;
+    if (this.error && !this.week && this.error.lastGood) {
+      this.week = this.error.lastGood;
+    }
 
-  /* Multi-line clamp (line count controlled in JS via webkitLineClamp) */
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-}
+    if (this.error && !this.week) {
+      const err = document.createElement("div");
+      err.className = "qs-error";
+      err.textContent =
+        (this.error && this.error.error)
+          ? this.error.error
+          : "Error loading schedule";
+      wrapper.appendChild(err);
+      return wrapper;
+    }
 
-/* Highlight today: do NOT change text colors, do NOT brighten the whole card,
-   just add a subtle inner ring so only today looks different */
-.qs-cell.qs-today {
-  box-shadow: 0 0 0 2px rgba(255,255,255,0.16) inset;
-}
+    if (!this.week) {
+      const loading = document.createElement("div");
+      loading.className = "qs-loading";
+      loading.textContent = "Loading…";
+      wrapper.appendChild(loading);
+      return wrapper;
+    }
 
-/* Weekend coloring: left exactly as you had it */
-.qs-sat .qs-dow,
-.qs-sat .qs-date {
-  color: #2f80ff;
-  opacity: 1;
-}
+    const row = document.createElement("div");
+    row.className = "qs-row";
 
-.qs-sun .qs-dow,
-.qs-sun .qs-date {
-  color: #ff3b3b;
-  opacity: 1;
-}
+    const byDate = new Map();
+    if (Array.isArray(this.week.days)) {
+      for (const d of this.week.days) {
+        byDate.set(d.date, d);
+      }
+    }
 
-.qs-loading,
-.qs-error,
-.qs-warn {
-  font-size: 14px;
-  opacity: 0.8;
-}
+    const start = this.week.weekStart
+      ? moment(this.week.weekStart)
+      : moment().startOf("isoWeek");
 
-.qs-error {
-  opacity: 0.9;
-}
+    const todayKey = moment().format("YYYY-MM-DD");
 
-.qs-updated-cached {
-  opacity: 0.55;
-}
+    for (let i = 0; i < 7; i++) {
+      const m = start.clone().add(i, "days");
+      const dateKey = m.format("YYYY-MM-DD");
+      const dow = m.format("ddd");
 
-/* Type accents: borders on both left and right */
-.qs-cell.qs-home {
-  border-left-color: rgba(70, 200, 120, 0.85);
-  border-right-color: rgba(70, 200, 120, 0.85);
-  background: rgba(70, 200, 120, 0.08);
-}
+      const item = byDate.get(dateKey);
+      const descRaw = item ? item.desc : "—";
+      const isOff = item
+        ? item.isOff
+        : new RegExp(this.config.offRegex, "i").test(descRaw);
 
-.qs-cell.qs-install {
-  border-left-color: rgba(255, 165, 0, 0.9);
-  border-right-color: rgba(255, 165, 0, 0.9);
-  background: rgba(255, 165, 0, 0.08);
-}
+      if (!this.config.showOff && isOff) continue;
 
-.qs-cell.qs-off {
-  border-left-color: rgba(180, 180, 180, 0.75);
-  border-right-color: rgba(180, 180, 180, 0.75);
-  background: rgba(255, 255, 255, 0.03);
-  opacity: 0.75;
-}
+      const cell = document.createElement("div");
+      cell.className = "qs-cell";
 
-.qs-cell.qs-other {
-  border-left-color: rgba(120, 160, 255, 0.55);
-  border-right-color: rgba(120, 160, 255, 0.55);
-}
+      // --- classify shift type ---
+      const descText = String(descRaw || "").trim();
 
-/* Optional: make the description a touch clearer on busy strings */
-.qs-cell.qs-install .qs-desc,
-.qs-cell.qs-home .qs-desc {
-  opacity: 0.95;
-}
+      if (isOff) {
+        cell.classList.add("qs-off");
+      } else if (/\b(helpdesk|service)\b/i.test(descText)) {
+        cell.classList.add("qs-home");
+      } else if (/\binstall\b/i.test(descText)) {
+        cell.classList.add("qs-install");
+      } else {
+        cell.classList.add("qs-other");
+      }
 
-/* Type accent for weekday labels only, weekends untouched */
-.qs-cell.qs-home:not(.qs-sat):not(.qs-sun) .qs-dow,
-.qs-cell.qs-home:not(.qs-sat):not(.qs-sun) .qs-date {
-  color: rgba(70, 200, 120, 0.95);
-  opacity: 1;
-}
+      // Weekend coloring
+      const isoDow = m.isoWeekday();
+      if (isoDow === 6) cell.classList.add("qs-sat");
+      if (isoDow === 7) cell.classList.add("qs-sun");
 
-.qs-cell.qs-install:not(.qs-sat):not(.qs-sun) .qs-dow,
-.qs-cell.qs-install:not(.qs-sat):not(.qs-sun) .qs-date {
-  color: rgba(255, 165, 0, 0.95);
-  opacity: 1;
-}
+      // Highlight today
+      if (dateKey === todayKey) {
+        cell.classList.add("qs-today");
+      }
+
+      const dowEl = document.createElement("div");
+      dowEl.className = "qs-dow";
+      dowEl.textContent = dow;
+      cell.appendChild(dowEl);
+
+      const dateEl = document.createElement("div");
+      dateEl.className = "qs-date";
+      dateEl.textContent = m.format("MMM D");
+      cell.appendChild(dateEl);
+
+      const desc = document.createElement("div");
+      desc.className = "qs-desc";
+      desc.style.webkitLineClamp = String(this.config.maxLines);
+      desc.textContent = String(descRaw);
+      cell.appendChild(desc);
+
+      row.appendChild(cell);
+    }
+
+    wrapper.appendChild(row);
+
+    if (this.error) {
+      const warn = document.createElement("div");
+      warn.className = "qs-warn";
+      warn.textContent = "Using last saved schedule.";
+      wrapper.appendChild(warn);
+    }
+
+    return wrapper;
+  }
+});
