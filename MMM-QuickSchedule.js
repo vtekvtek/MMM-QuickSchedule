@@ -91,7 +91,12 @@ Module.register("MMM-QuickSchedule", {
       ? moment(this.week.weekStart)
       : moment().startOf("isoWeek");
 
-    const todayKey = moment().format("YYYY-MM-DD");
+    // --- FIX: use configured timezone for "now" and disable today highlight on weekends ---
+    const now = moment().tz(this.config.timezone);
+    const isWeekendNow = (now.isoWeekday() === 6 || now.isoWeekday() === 7);
+    const highlightToday = !isWeekendNow;
+    const todayKey = now.format("YYYY-MM-DD");
+    // --- end fix ---
 
     for (let i = 0; i < 7; i++) {
       const m = start.clone().add(i, "days");
@@ -122,15 +127,16 @@ Module.register("MMM-QuickSchedule", {
         cell.classList.add("qs-other");
       }
 
-      // Weekend coloring
+      // Weekend coloring (leave as-is)
       const isoDow = m.isoWeekday();
       if (isoDow === 6) cell.classList.add("qs-sat");
       if (isoDow === 7) cell.classList.add("qs-sun");
 
-      // Highlight today
-      if (dateKey === todayKey) {
+      // --- FIX: Highlight today only if enabled (Mon-Fri) ---
+      if (highlightToday && dateKey === todayKey) {
         cell.classList.add("qs-today");
       }
+      // --- end fix ---
 
       const dowEl = document.createElement("div");
       dowEl.className = "qs-dow";
