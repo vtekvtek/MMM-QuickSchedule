@@ -96,6 +96,18 @@ Module.register("MMM-QuickSchedule", {
       if (!this.config.showOff && isOff) continue;
 
       const cell = document.createElement("div");
+      // --- classify shift text and add style classes ---
+      const descText = String(descRaw || "").trim();
+
+      if (isOff) {
+      cell.classList.add("qs-off");
+      } else if (/\b(helpdesk|service)\b/i.test(descText)) {
+      cell.classList.add("qs-home");     // Work-from-home / helpdesk / service
+      } else if (/\binstall\b/i.test(descText)) {
+      cell.classList.add("qs-install");  // Install days
+      } else {
+      cell.classList.add("qs-other");    // Anything else (fallback)
+      }
       cell.className = "qs-cell";
 
       const isoDow = m.isoWeekday(); // 1=Mon ... 6=Sat ... 7=Sun
