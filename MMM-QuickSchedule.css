@@ -94,3 +94,29 @@
   opacity: 0.55;
 }
 
+/* Type accents, keep it subtle so it still fits the Mirror aesthetic */
+.qs-cell.qs-home {
+  border-left: 3px solid rgba(70, 200, 120, 0.85);
+  background: rgba(70, 200, 120, 0.08);
+}
+
+.qs-cell.qs-install {
+  border-left: 3px solid rgba(255, 165, 0, 0.9);
+  background: rgba(255, 165, 0, 0.08);
+}
+
+.qs-cell.qs-off {
+  border-left: 3px solid rgba(180, 180, 180, 0.75);
+  background: rgba(255, 255, 255, 0.03);
+  opacity: 0.75;
+}
+
+.qs-cell.qs-other {
+  border-left: 3px solid rgba(120, 160, 255, 0.55);
+}
+
+/* Optional: make the description a touch clearer on busy strings */
+.qs-cell.qs-install .qs-desc,
+.qs-cell.qs-home .qs-desc {
+  opacity: 0.95;
+}
