@@ -172,12 +172,17 @@ module.exports = NodeHelper.create({
   async runScrape(reason) {
     const timezone = process.env.TIMEZONE || (this.config && this.config.timezone) || "America/Toronto";
 
-    // Always scrape current month plus next month
     const now = DateTime.now().setZone(timezone);
-    const thisMonthBase = now.toISODate(); // any date in current month
-    const nextMonthBase = now.plus({ months: 1 }).startOf("month").toISODate(); // first of next month
+
+    // Any date inside current month
+    const thisMonthBaseISO = now.toISODate();
+
+    // First day of next month
+    const nextMonthBaseISO = now.plus({ months: 1 }).startOf("month").toISODate();
 
     try {
+      // IMPORTANT:
+      // Only one call writes the ICS to avoid file races.
       const [cur, nxt] = await Promise.all([
         scrapeToIcs({
           username: process.env.QS_USERNAME,
@@ -187,33 +192,40 @@ module.exports = NodeHelper.create({
           outIcs: process.env.OUT_ICS,
           timezone,
           headless: true,
-          baseDateISO: thisMonthBase,
+          baseDateISO: thisMonthBaseISO,
+          writeIcs: true,
         }),
         scrapeToIcs({
           username: process.env.QS_USERNAME,
           password: process.env.QS_PASSWORD,
           loginUrl: process.env.QS_LOGIN_URL,
           techName: process.env.TECH_NAME,
-          outIcs: process.env.OUT_ICS,
+          outIcs: process.env.OUT_ICS, // unused because writeIcs=false, but harmless
           timezone,
           headless: true,
-          baseDateISO: nextMonthBase,
+          baseDateISO: nextMonthBaseISO,
+          writeIcs: false,
         }),
       ]);
 
       const mergedDays = mergeDaysByDate(cur.days, nxt.days);
 
       const data = {
-        ...cur,
-        // Prefer merged days over week-only days
+        scheduleUrl: cur.scheduleUrl,
+        outIcs: cur.outIcs,
+
+        // Front-end will choose the visible 7-day window, so give it lots of days
         days: mergedDays,
-        // Week start in your UI should be Monday, so use ISO week start
-        weekStart: now.startOf("week").plus({ days: 1 }).toISODate(), // Luxon default week start can vary, force Monday
+
+        // Keep for debugging
+        monthRowCount: (cur.monthRowCount || 0) + (nxt.monthRowCount || 0),
+        curMonthRowCount: cur.monthRowCount,
+        nextMonthRowCount: nxt.monthRowCount,
+        baseDateISO: thisMonthBaseISO,
+        nextMonthBaseISO,
+
         updatedAt: DateTime.now().setZone(timezone).toISO(),
         fresh: true,
-        scrapeMode: "month+next",
-        baseDateISO: thisMonthBase,
-        nextMonthBaseISO: nextMonthBase,
       };
 
       this.lastGood = data;
