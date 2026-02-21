@@ -26,6 +26,9 @@
   padding: 8px 10px;
   border-radius: 8px;
   background: rgba(255,255,255,0.06);
+
+  /* keep a consistent border width so nothing "pops" */
+  border-left: 4px solid transparent;
 }
 
 .qs-dow {
@@ -53,45 +56,7 @@
   -webkit-box-orient: vertical;
 }
 
-/* Highlight today — now matches border color instead of white */
-
-.qs-cell.qs-today {
-  background: rgba(255,255,255,0.08);
-}
-
-/* Home today */
-.qs-cell.qs-home.qs-today {
-  background: rgba(70, 200, 120, 0.15);
-}
-
-/* Install today */
-.qs-cell.qs-install.qs-today {
-  background: rgba(255, 165, 0, 0.15);
-}
-
-/* Off today */
-.qs-cell.qs-off.qs-today {
-  background: rgba(180, 180, 180, 0.15);
-}
-
-/* Saturday today */
-.qs-cell.qs-sat.qs-today {
-  background: rgba(47, 128, 255, 0.15);
-}
-
-/* Sunday today */
-.qs-cell.qs-sun.qs-today {
-  background: rgba(255, 59, 59, 0.15);
-}
-
-/* Keep existing text colors */
-.qs-today .qs-dow,
-.qs-today .qs-date,
-.qs-today .qs-desc {
-  color: inherit;
-  opacity: 1;
-}
-
+/* Weekend text coloring, unchanged */
 .qs-sat .qs-dow,
 .qs-sat .qs-date {
   color: #2f80ff;
@@ -119,33 +84,31 @@
   opacity: 0.55;
 }
 
-/* Type accents */
-
+/* Type accents, borders only on normal days, no background tint */
 .qs-cell.qs-home {
-  border-left: 4px solid rgba(70, 200, 120, 0.85);
-  background: rgba(70, 200, 120, 0.08);
+  border-left-color: rgba(70, 200, 120, 0.85);
 }
 
 .qs-cell.qs-install {
-  border-left: 4px solid rgba(255, 165, 0, 0.9);
-  background: rgba(255, 165, 0, 0.08);
+  border-left-color: rgba(255, 165, 0, 0.9);
 }
 
 .qs-cell.qs-off {
-  border-left: 4px solid rgba(180, 180, 180, 0.75);
-  background: rgba(255, 255, 255, 0.03);
+  border-left-color: rgba(180, 180, 180, 0.75);
   opacity: 0.75;
 }
 
 .qs-cell.qs-other {
-  border-left: 4px solid rgba(120, 160, 255, 0.55);
+  border-left-color: rgba(120, 160, 255, 0.55);
 }
 
+/* Optional: make the description a touch clearer on busy strings */
 .qs-cell.qs-install .qs-desc,
 .qs-cell.qs-home .qs-desc {
   opacity: 0.95;
 }
 
+/* Keep your weekday label accents */
 .qs-cell.qs-home .qs-dow,
 .qs-cell.qs-home .qs-date {
   color: rgba(70, 200, 120, 0.95);
@@ -155,5 +118,44 @@
 .qs-cell.qs-install .qs-dow,
 .qs-cell.qs-install .qs-date {
   color: rgba(255, 165, 0, 0.95);
+  opacity: 1;
+}
+
+/* Today highlight uses the same "family" color as the border/type */
+.qs-cell.qs-today {
+  background: rgba(255,255,255,0.10);
+}
+
+/* Today by type */
+.qs-cell.qs-home.qs-today {
+  background: rgba(70, 200, 120, 0.15);
+}
+
+.qs-cell.qs-install.qs-today {
+  background: rgba(255, 165, 0, 0.15);
+}
+
+.qs-cell.qs-off.qs-today {
+  background: rgba(180, 180, 180, 0.15);
+}
+
+.qs-cell.qs-other.qs-today {
+  background: rgba(120, 160, 255, 0.12);
+}
+
+/* Weekend border colors must win over type borders, fixes the "flipped" look */
+.qs-cell.qs-sat {
+  border-left-color: #2f80ff;
+}
+
+.qs-cell.qs-sun {
+  border-left-color: #ff3b3b;
+}
+
+/* Do not force white text on today */
+.qs-today .qs-dow,
+.qs-today .qs-date,
+.qs-today .qs-desc {
+  color: inherit;
   opacity: 1;
 }
