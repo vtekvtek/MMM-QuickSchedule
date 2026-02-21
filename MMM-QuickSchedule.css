@@ -26,6 +26,10 @@
   padding: 8px 10px;
   border-radius: 8px;
   background: rgba(255,255,255,0.06);
+
+  /* Prevent layout shift, keep borders symmetrical */
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
 }
 
 .qs-dow {
@@ -55,18 +59,13 @@
   -webkit-box-orient: vertical;
 }
 
-/* Highlight today */
-.qs-today {
-  background: rgba(255,255,255,0.16);
+/* Highlight today: do not override text colors, just enhance what's already there */
+.qs-cell.qs-today {
+  background: rgba(255,255,255,0.14);
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.14) inset;
 }
 
-.qs-today .qs-dow,
-.qs-today .qs-date,
-.qs-today .qs-desc {
-  color: #ffffff;
-  opacity: 1;
-}
-
+/* Weekend coloring (you said you never work weekends, this stays as a clear cue) */
 .qs-sat .qs-dow,
 .qs-sat .qs-date {
   color: #2f80ff;
@@ -94,29 +93,59 @@
   opacity: 0.55;
 }
 
-/* Type accents, keep it subtle so it still fits the Mirror aesthetic */
+/* Type accents: borders on both left and right */
 .qs-cell.qs-home {
-  border-left: 3px solid rgba(70, 200, 120, 0.85);
+  border-left-color: rgba(70, 200, 120, 0.85);
+  border-right-color: rgba(70, 200, 120, 0.85);
   background: rgba(70, 200, 120, 0.08);
 }
 
 .qs-cell.qs-install {
-  border-left: 3px solid rgba(255, 165, 0, 0.9);
+  border-left-color: rgba(255, 165, 0, 0.9);
+  border-right-color: rgba(255, 165, 0, 0.9);
   background: rgba(255, 165, 0, 0.08);
 }
 
 .qs-cell.qs-off {
-  border-left: 3px solid rgba(180, 180, 180, 0.75);
+  border-left-color: rgba(180, 180, 180, 0.75);
+  border-right-color: rgba(180, 180, 180, 0.75);
   background: rgba(255, 255, 255, 0.03);
   opacity: 0.75;
 }
 
 .qs-cell.qs-other {
-  border-left: 3px solid rgba(120, 160, 255, 0.55);
+  border-left-color: rgba(120, 160, 255, 0.55);
+  border-right-color: rgba(120, 160, 255, 0.55);
 }
 
 /* Optional: make the description a touch clearer on busy strings */
 .qs-cell.qs-install .qs-desc,
 .qs-cell.qs-home .qs-desc {
   opacity: 0.95;
+}
+
+/* Type accent for weekday labels only, weekends stay blue/red */
+.qs-cell.qs-home:not(.qs-sat):not(.qs-sun) .qs-dow,
+.qs-cell.qs-home:not(.qs-sat):not(.qs-sun) .qs-date {
+  color: rgba(70, 200, 120, 0.95);
+  opacity: 1;
+}
+
+.qs-cell.qs-install:not(.qs-sat):not(.qs-sun) .qs-dow,
+.qs-cell.qs-install:not(.qs-sat):not(.qs-sun) .qs-date {
+  color: rgba(255, 165, 0, 0.95);
+  opacity: 1;
+}
+
+/* Weekend always overrides type text color */
+.qs-cell.qs-sat .qs-dow,
+.qs-cell.qs-sat .qs-date {
+  color: #2f80ff !important;
+  opacity: 1;
+}
+
+.qs-cell.qs-sun .qs-dow,
+.qs-cell.qs-sun .qs-date {
+  color: #ff3b3b !important;
+  opacity: 1;
 }
