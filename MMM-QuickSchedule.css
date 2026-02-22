@@ -93,6 +93,14 @@
   border-left-color: rgba(255, 165, 0, 0.9);
 }
 
+.qs-cell.qs-vacation {
+  border-left-color: rgba(160, 120, 255, 0.85);
+}
+
+.qs-cell.qs-sick {
+  border-left-color: rgba(255, 95, 95, 0.85);
+}
+
 .qs-cell.qs-off {
   border-left-color: rgba(180, 180, 180, 0.75);
   opacity: 0.75;
@@ -135,6 +143,14 @@
   background: rgba(255, 165, 0, 0.15);
 }
 
+.qs-cell.qs-vacation.qs-today {
+  background: rgba(160, 120, 255, 0.15);
+}
+
+.qs-cell.qs-sick.qs-today {
+  background: rgba(255, 95, 95, 0.15);
+}
+
 .qs-cell.qs-off.qs-today {
   background: rgba(180, 180, 180, 0.15);
 }
@@ -158,4 +174,38 @@
 .qs-today .qs-desc {
   color: inherit;
   opacity: 1;
+}
+
+/* Compact mode toggle */
+.qs-compact .qs-row {
+  gap: 8px;
+}
+
+.qs-compact .qs-cell {
+  padding: 6px 8px;
+  border-radius: 7px;
+}
+
+.qs-compact .qs-title {
+  font-size: 16px;
+  margin-bottom: 1px;
+}
+
+.qs-compact .qs-updated {
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.qs-compact .qs-dow {
+  font-size: 14px;
+}
+
+.qs-compact .qs-date {
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+
+.qs-compact .qs-desc {
+  font-size: 13px;
+  line-height: 1.15;
 }
