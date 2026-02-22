@@ -4,7 +4,8 @@ Module.register("MMM-QuickSchedule", {
     timezone: "America/Toronto",
     showOff: true,
     offRegex: "\\bOFF\\b",
-    maxLines: 3
+    maxLines: 3,
+    compact: false
   },
 
   start() {
@@ -35,21 +36,20 @@ Module.register("MMM-QuickSchedule", {
   getDom() {
     const wrapper = document.createElement("div");
     wrapper.className = "qs-week";
+    if (this.config.compact) wrapper.classList.add("qs-compact");
 
     const title = document.createElement("div");
     title.className = "qs-title";
     title.textContent = this.config.title;
     wrapper.appendChild(title);
 
-    // Last updated
+    // Last updated (timezone-safe)
     if (this.week && this.week.updatedAt) {
       const updated = document.createElement("div");
-      const when = moment(this.week.updatedAt).format("MMM D, h:mm A");
+      const when = moment.tz(this.week.updatedAt, this.config.timezone).format("MMM D, h:mm A");
       const status = (this.week.fresh === false) ? "cached" : "live";
 
-      updated.className =
-        "qs-updated" + (status === "cached" ? " qs-updated-cached" : "");
-
+      updated.className = "qs-updated" + (status === "cached" ? " qs-updated-cached" : "");
       updated.textContent = "Last updated: " + when + " (" + status + ")";
       wrapper.appendChild(updated);
     }
@@ -61,10 +61,7 @@ Module.register("MMM-QuickSchedule", {
     if (this.error && !this.week) {
       const err = document.createElement("div");
       err.className = "qs-error";
-      err.textContent =
-        (this.error && this.error.error)
-          ? this.error.error
-          : "Error loading schedule";
+      err.textContent = (this.error && this.error.error) ? this.error.error : "Error loading schedule";
       wrapper.appendChild(err);
       return wrapper;
     }
@@ -83,28 +80,24 @@ Module.register("MMM-QuickSchedule", {
     const byDate = new Map();
     if (Array.isArray(this.week.days)) {
       for (const d of this.week.days) {
-        byDate.set(d.date, d);
+        if (d && d.date) byDate.set(d.date, d);
       }
     }
 
-    // --- Rolling-weekend start logic (what you asked for) ---
+    // Weekend logic: Sat/Sun show NEXT ISO week (Mon-Sun), otherwise THIS ISO week
     const now = moment().tz(this.config.timezone);
     const isoDowNow = now.isoWeekday(); // 1=Mon ... 7=Sun
     const isWeekendNow = (isoDowNow === 6 || isoDowNow === 7);
 
     let start;
-
     if (isWeekendNow) {
-      // Sat/Sun: show NEXT ISO week (Mon-Sun)
       start = now.clone().add(1, "week").startOf("isoWeek");
     } else {
-      // Mon-Fri: show THIS ISO week (Mon-Sun)
       start = now.clone().startOf("isoWeek");
     }
 
-    // Today highlight should work every day (including weekends)
     const todayKey = now.format("YYYY-MM-DD");
-    // --- end rolling-weekend logic ---
+    const highlightToday = !isWeekendNow; // on weekends we're viewing next week
 
     for (let i = 0; i < 7; i++) {
       const m = start.clone().add(i, "days");
@@ -112,21 +105,30 @@ Module.register("MMM-QuickSchedule", {
       const dow = m.format("ddd");
 
       const item = byDate.get(dateKey);
-      const descRaw = item ? item.desc : "—";
+
+      // TBD logic: missing future entries show TBD, missing past/today show —
+      const isMissing = !item || !item.desc;
+      const isFuture = m.isAfter(now, "day");
+      const descRaw = isMissing ? (isFuture ? "TBD" : "—") : item.desc;
+
       const isOff = item
         ? item.isOff
-        : new RegExp(this.config.offRegex, "i").test(descRaw);
+        : new RegExp(this.config.offRegex, "i").test(String(descRaw || ""));
 
       if (!this.config.showOff && isOff) continue;
 
       const cell = document.createElement("div");
       cell.className = "qs-cell";
 
-      // --- classify shift type ---
+      // classify shift type
       const descText = String(descRaw || "").trim();
 
       if (isOff) {
         cell.classList.add("qs-off");
+      } else if (/\b(vacation|vac|pto)\b/i.test(descText)) {
+        cell.classList.add("qs-vacation");
+      } else if (/\bSICK\s*DAY\b/i.test(descText)) {
+        cell.classList.add("qs-sick");
       } else if (/\b(helpdesk|service)\b/i.test(descText)) {
         cell.classList.add("qs-home");
       } else if (/\binstall\b/i.test(descText)) {
@@ -135,17 +137,14 @@ Module.register("MMM-QuickSchedule", {
         cell.classList.add("qs-other");
       }
 
-      // Weekend coloring (based on the tile date, not "today")
+      // Weekend coloring (based on tile date)
       const isoDow = m.isoWeekday();
       if (isoDow === 6) cell.classList.add("qs-sat");
       if (isoDow === 7) cell.classList.add("qs-sun");
 
-      // Highlight today (only on weekdays)
-      const highlightToday = !isWeekendNow;
-
       // Highlight today only when viewing the current week
       if (highlightToday && dateKey === todayKey) {
-      cell.classList.add("qs-today");
+        cell.classList.add("qs-today");
       }
 
       const dowEl = document.createElement("div");
