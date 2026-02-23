@@ -31,7 +31,7 @@
   border-left: 4px solid transparent;
 
   /* subtle dim so "today" can stand out */
-  opacity: 0.82;
+  opacity: 0.78;
 
   /* smooth visual change when highlighting */
   transition: opacity 0.2s ease, background 0.2s ease;
@@ -138,7 +138,7 @@
 /* Today: bring back to full strength and slightly brighter background */
 .qs-cell.qs-today {
   opacity: 1;
-  background: rgba(255,255,255,0.45);
+  background: rgba(255,255,255,0.30);
 }
 
 /* Today by type */
