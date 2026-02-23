@@ -131,7 +131,7 @@
 
 /* Today highlight uses the same "family" color as the border/type */
 .qs-cell.qs-today {
-  background: rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.15);
 }
 
 /* Today by type */
