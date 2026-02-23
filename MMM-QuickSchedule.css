@@ -59,13 +59,13 @@
 /* Weekend text coloring, unchanged */
 .qs-sat .qs-dow,
 .qs-sat .qs-date {
-  color: #2f80ff;
+  color: dodgerblue;
   opacity: 1;
 }
 
 .qs-sun .qs-dow,
 .qs-sun .qs-date {
-  color: #ff3b3b;
+  color: crimson;
   opacity: 1;
 }
 
@@ -161,11 +161,11 @@
 
 /* Weekend border colors must win over type borders, fixes the "flipped" look */
 .qs-cell.qs-sat {
-  border-left-color: #2f80ff;
+  border-left-color: dodgerblue;
 }
 
 .qs-cell.qs-sun {
-  border-left-color: #ff3b3b;
+  border-left-color: crimson;
 }
 
 /* Do not force white text on today */
