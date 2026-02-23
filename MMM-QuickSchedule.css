@@ -29,6 +29,12 @@
 
   /* keep a consistent border width so nothing "pops" */
   border-left: 4px solid transparent;
+
+  /* subtle dim so "today" can stand out */
+  opacity: 0.82;
+
+  /* smooth visual change when highlighting */
+  transition: opacity 0.2s ease, background 0.2s ease;
 }
 
 .qs-dow {
@@ -129,34 +135,35 @@
   opacity: 1;
 }
 
-/* Today highlight uses the same "family" color as the border/type */
+/* Today: bring back to full strength and slightly brighter background */
 .qs-cell.qs-today {
-  background: rgba(255,255,255,0.15);
+  opacity: 1;
+  background: rgba(255,255,255,0.18);
 }
 
 /* Today by type */
 .qs-cell.qs-home.qs-today {
-  background: rgba(70, 200, 120, 0.15);
+  background: rgba(70, 200, 120, 0.18);
 }
 
 .qs-cell.qs-install.qs-today {
-  background: rgba(255, 165, 0, 0.15);
+  background: rgba(255, 165, 0, 0.18);
 }
 
 .qs-cell.qs-vacation.qs-today {
-  background: rgba(160, 120, 255, 0.15);
+  background: rgba(160, 120, 255, 0.18);
 }
 
 .qs-cell.qs-sick.qs-today {
-  background: rgba(255, 95, 95, 0.15);
+  background: rgba(255, 95, 95, 0.18);
 }
 
 .qs-cell.qs-off.qs-today {
-  background: rgba(180, 180, 180, 0.15);
+  background: rgba(180, 180, 180, 0.18);
 }
 
 .qs-cell.qs-other.qs-today {
-  background: rgba(120, 160, 255, 0.12);
+  background: rgba(120, 160, 255, 0.14);
 }
 
 /* Weekend border colors must win over type borders, fixes the "flipped" look */
