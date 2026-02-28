@@ -73,11 +73,13 @@ function parseCron5(expr) {
   const dom = parsePart(domP, 1, 31);
   const mon = parsePart(monP, 1, 12);
 
-  let dowNorm = String(dowP).replace(/\b7\b/g, "0");
+  // allow 7 as Sunday, convert to 0
+  const dowNorm = String(dowP).replace(/\b7\b/g, "0");
   const dow = parsePart(dowNorm, 0, 6);
 
-  if (!minutes || !hours || !dom || !mon || !dow)
+  if (!minutes || !hours || !dom || !mon || !dow) {
     throw new Error("Invalid cron expression");
+  }
 
   return { minutes, hours, dom, mon, dow };
 }
@@ -115,6 +117,27 @@ function nextRunFromCron(expr, zone, fromDt) {
   throw new Error("No next run found within 60 days");
 }
 
+/* ------------------ MERGE DAYS (DEDUP BY DATE) ------------------ */
+
+function mergeDaysByDate(daysA, daysB) {
+  const map = new Map();
+
+  const addAll = (arr) => {
+    if (!Array.isArray(arr)) return;
+    for (const d of arr) {
+      if (!d || !d.date) continue;
+      map.set(String(d.date), d);
+    }
+  };
+
+  addAll(daysA);
+  addAll(daysB);
+
+  return Array.from(map.values()).sort((x, y) =>
+    String(x.date).localeCompare(String(y.date))
+  );
+}
+
 /* ------------------ NODE HELPER ------------------ */
 
 module.exports = NodeHelper.create({
@@ -133,6 +156,7 @@ module.exports = NodeHelper.create({
       // Run immediately on startup
       this.runScrape("startup").catch(() => null);
 
+      // Schedule from refreshCron (if provided)
       this.scheduleFromCron();
       return;
     }
@@ -155,11 +179,14 @@ module.exports = NodeHelper.create({
       "America/Toronto";
 
     let next;
-
     try {
       next = nextRunFromCron(cronExpr, timezone, DateTime.now());
     } catch (e) {
       log("Invalid cron:", e.message);
+      this.sendSocketNotification("WEEK_ERROR", {
+        reason: "cron-parse",
+        error: "Invalid refreshCron: " + String(e && e.message ? e.message : e),
+      });
       return;
     }
 
@@ -186,20 +213,50 @@ module.exports = NodeHelper.create({
 
     log("runScrape start:", reason);
 
-    try {
-      const now = DateTime.now().setZone(timezone);
-      const thisMonthBaseISO = now.toISODate();
-      const nextMonthBaseISO = now.plus({ months: 1 }).startOf("month").toISODate();
+    const now = DateTime.now().setZone(timezone);
+    const thisMonthBaseISO = now.toISODate();
+    const nextMonthBaseISO = now.plus({ months: 1 }).startOf("month").toISODate();
 
+    try {
       const [cur, nxt] = await Promise.all([
-        scrapeToIcs({ ...process.env, timezone, baseDateISO: thisMonthBaseISO, writeIcs: true }),
-        scrapeToIcs({ ...process.env, timezone, baseDateISO: nextMonthBaseISO, writeIcs: false }),
+        scrapeToIcs({
+          username: process.env.QS_USERNAME,
+          password: process.env.QS_PASSWORD,
+          loginUrl: process.env.QS_LOGIN_URL,
+          techName: process.env.TECH_NAME,
+          outIcs: process.env.OUT_ICS,
+          timezone,
+          headless: true,
+          baseDateISO: thisMonthBaseISO,
+          writeIcs: true,
+        }),
+        scrapeToIcs({
+          username: process.env.QS_USERNAME,
+          password: process.env.QS_PASSWORD,
+          loginUrl: process.env.QS_LOGIN_URL,
+          techName: process.env.TECH_NAME,
+          outIcs: process.env.OUT_ICS, // unused when writeIcs=false, but harmless
+          timezone,
+          headless: true,
+          baseDateISO: nextMonthBaseISO,
+          writeIcs: false,
+        }),
       ]);
 
-      const mergedDays = [...(cur.days || []), ...(nxt.days || [])];
+      const mergedDays = mergeDaysByDate(cur && cur.days, nxt && nxt.days);
 
       const data = {
+        scheduleUrl: cur && cur.scheduleUrl,
+        outIcs: cur && cur.outIcs,
         days: mergedDays,
+
+        // Keep for debugging if scraper provides these
+        monthRowCount: ((cur && cur.monthRowCount) || 0) + ((nxt && nxt.monthRowCount) || 0),
+        curMonthRowCount: cur && cur.monthRowCount,
+        nextMonthRowCount: nxt && nxt.monthRowCount,
+        baseDateISO: thisMonthBaseISO,
+        nextMonthBaseISO,
+
         updatedAt: DateTime.now().setZone(timezone).toISO(),
         fresh: true,
       };
@@ -209,7 +266,18 @@ module.exports = NodeHelper.create({
 
       log("runScrape success");
     } catch (e) {
-      log("runScrape error:", e.message);
+      log("runScrape error:", e && e.message ? e.message : String(e));
+
+      if (this.lastGood) {
+        const cached = { ...this.lastGood, fresh: false };
+        this.sendSocketNotification("WEEK_DATA", cached);
+      }
+
+      this.sendSocketNotification("WEEK_ERROR", {
+        reason,
+        error: String(e && e.message ? e.message : e),
+        lastGood: this.lastGood || null,
+      });
     }
   },
 });
