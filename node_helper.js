@@ -55,7 +55,8 @@ function parsePart(part, min, max) {
 
 function parseCron5(expr) {
   const parts = String(expr).trim().split(/\s+/);
-  if (parts.length !== 5) throw new Error("Cron must have 5 fields: min hour dom mon dow");
+  if (parts.length !== 5)
+    throw new Error("Cron must have 5 fields: min hour dom mon dow");
 
   const [minP, hourP, domP, monP, dowP] = parts;
 
@@ -68,15 +69,22 @@ function parseCron5(expr) {
   let dowNorm = String(dowP).replace(/\b7\b/g, "0");
   const dow = parsePart(dowNorm, 0, 6);
 
-  if (!minutes || !hours || !dom || !mon || !dow) throw new Error("Cron fields could not be parsed");
+  if (!minutes || !hours || !dom || !mon || !dow)
+    throw new Error("Cron fields could not be parsed");
+
   return { minutes, hours, dom, mon, dow };
 }
 
 function nextRunFromCron(expr, zone, fromDt) {
   const cron = parseCron5(expr);
-  let dt = fromDt.setZone(zone).startOf("minute").plus({ minutes: 1 });
+
+  let dt = fromDt
+    .setZone(zone)
+    .startOf("minute")
+    .plus({ minutes: 1 });
 
   const maxSteps = 60 * 24 * 60; // 60 days
+
   for (let i = 0; i < maxSteps; i++) {
     const m = dt.minute;
     const h = dt.hour;
@@ -95,10 +103,13 @@ function nextRunFromCron(expr, zone, fromDt) {
     ) {
       return dt;
     }
+
     dt = dt.plus({ minutes: 1 });
   }
 
-  throw new Error("No next run found within 60 days, cron may be too restrictive");
+  throw new Error(
+    "No next run found within 60 days, cron may be too restrictive"
+  );
 }
 
 function mergeDaysByDate(daysA, daysB) {
@@ -115,7 +126,9 @@ function mergeDaysByDate(daysA, daysB) {
   addAll(daysA);
   addAll(daysB);
 
-  return Array.from(map.values()).sort((x, y) => String(x.date).localeCompare(String(y.date)));
+  return Array.from(map.values()).sort((x, y) =>
+    String(x.date).localeCompare(String(y.date))
+  );
 }
 
 module.exports = NodeHelper.create({
@@ -148,20 +161,32 @@ module.exports = NodeHelper.create({
     const cronExpr = this.config && this.config.refreshCron;
     if (!cronExpr) return;
 
-    const timezone = process.env.TIMEZONE || (this.config && this.config.timezone) || "America/Toronto";
+    const timezone =
+      process.env.TIMEZONE ||
+      (this.config && this.config.timezone) ||
+      "America/Toronto";
 
     let next;
     try {
-      next = nextRunFromCron(cronExpr, timezone, DateTime.now().setZone(timezone));
+      next = nextRunFromCron(
+        cronExpr,
+        timezone,
+        DateTime.now().setZone(timezone)
+      );
     } catch (e) {
       this.sendSocketNotification("WEEK_ERROR", {
         reason: "cron-parse",
-        error: "Invalid refreshCron: " + String(e && e.message ? e.message : e),
+        error:
+          "Invalid refreshCron: " +
+          String(e && e.message ? e.message : e),
       });
       return;
     }
 
-    const ms = Math.max(1000, next.toMillis() - DateTime.now().toMillis());
+    const ms = Math.max(
+      1000,
+      next.toMillis() - DateTime.now().toMillis()
+    );
 
     this.timer = setTimeout(async () => {
       await this.runScrape("cron").catch(() => null);
@@ -170,12 +195,21 @@ module.exports = NodeHelper.create({
   },
 
   async runScrape(reason) {
-    const timezone = process.env.TIMEZONE || (this.config && this.config.timezone) || "America/Toronto";
+    const timezone =
+      process.env.TIMEZONE ||
+      (this.config && this.config.timezone) ||
+      "America/Toronto";
 
     const now = DateTime.now().setZone(timezone);
 
+    // Any date inside current month
     const thisMonthBaseISO = now.toISODate();
-    const nextMonthBaseISO = now.plus({ months: 1 }).startOf("month").toISODate();
+
+    // First day of next month
+    const nextMonthBaseISO = now
+      .plus({ months: 1 })
+      .startOf("month")
+      .toISODate();
 
     try {
       const [cur, nxt] = await Promise.all([
@@ -209,7 +243,9 @@ module.exports = NodeHelper.create({
         scheduleUrl: cur.scheduleUrl,
         outIcs: cur.outIcs,
         days: mergedDays,
-        monthRowCount: (cur.monthRowCount || 0) + (nxt.monthRowCount || 0),
+        monthRowCount:
+          (cur.monthRowCount || 0) +
+          (nxt.monthRowCount || 0),
         curMonthRowCount: cur.monthRowCount,
         nextMonthRowCount: nxt.monthRowCount,
         baseDateISO: thisMonthBaseISO,
@@ -228,7 +264,8 @@ module.exports = NodeHelper.create({
 
       this.sendSocketNotification("WEEK_ERROR", {
         reason,
-        error: String(e && e.message ? e.message : e),
+        error:
+          String(e && e.message ? e.message : e),
       });
     }
   },
