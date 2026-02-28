@@ -68,17 +68,13 @@ function parseCron5(expr) {
   let dowNorm = String(dowP).replace(/\b7\b/g, "0");
   const dow = parsePart(dowNorm, 0, 6);
 
-  if (!minutes || !hours || !dom || !mon || !dow)
-    throw new Error("Cron fields could not be parsed");
-
+  if (!minutes || !hours || !dom || !mon || !dow) throw new Error("Cron fields could not be parsed");
   return { minutes, hours, dom, mon, dow };
 }
 
 function nextRunFromCron(expr, zone, fromDt) {
   const cron = parseCron5(expr);
-
-  // 🔥 ONLY CHANGE: removed +1 minute
-  let dt = fromDt.setZone(zone).startOf("minute");
+  let dt = fromDt.setZone(zone).startOf("minute").plus({ minutes: 1 });
 
   const maxSteps = 60 * 24 * 60; // 60 days
   for (let i = 0; i < maxSteps; i++) {
@@ -119,9 +115,7 @@ function mergeDaysByDate(daysA, daysB) {
   addAll(daysA);
   addAll(daysB);
 
-  return Array.from(map.values()).sort((x, y) =>
-    String(x.date).localeCompare(String(y.date))
-  );
+  return Array.from(map.values()).sort((x, y) => String(x.date).localeCompare(String(y.date)));
 }
 
 module.exports = NodeHelper.create({
@@ -154,10 +148,7 @@ module.exports = NodeHelper.create({
     const cronExpr = this.config && this.config.refreshCron;
     if (!cronExpr) return;
 
-    const timezone =
-      process.env.TIMEZONE ||
-      (this.config && this.config.timezone) ||
-      "America/Toronto";
+    const timezone = process.env.TIMEZONE || (this.config && this.config.timezone) || "America/Toronto";
 
     let next;
     try {
@@ -179,12 +170,10 @@ module.exports = NodeHelper.create({
   },
 
   async runScrape(reason) {
-    const timezone =
-      process.env.TIMEZONE ||
-      (this.config && this.config.timezone) ||
-      "America/Toronto";
+    const timezone = process.env.TIMEZONE || (this.config && this.config.timezone) || "America/Toronto";
 
     const now = DateTime.now().setZone(timezone);
+
     const thisMonthBaseISO = now.toISODate();
     const nextMonthBaseISO = now.plus({ months: 1 }).startOf("month").toISODate();
 
@@ -220,6 +209,11 @@ module.exports = NodeHelper.create({
         scheduleUrl: cur.scheduleUrl,
         outIcs: cur.outIcs,
         days: mergedDays,
+        monthRowCount: (cur.monthRowCount || 0) + (nxt.monthRowCount || 0),
+        curMonthRowCount: cur.monthRowCount,
+        nextMonthRowCount: nxt.monthRowCount,
+        baseDateISO: thisMonthBaseISO,
+        nextMonthBaseISO,
         updatedAt: DateTime.now().setZone(timezone).toISO(),
         fresh: true,
       };
