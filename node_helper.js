@@ -5,21 +5,7 @@ require("dotenv").config({ path: path.join(__dirname, ".env") });
 const { DateTime } = require("luxon");
 const { scrapeToIcs } = require("./scraper");
 
-/* ------------------ CONFIG VALIDATION ------------------ */
-
-function missingScraperConfig() {
-  const required = [
-    "QS_USERNAME",
-    "QS_PASSWORD",
-    "QS_LOGIN_URL",
-    "TECH_NAME",
-    "OUT_ICS",
-  ];
-  return required.filter((k) => !process.env[k] || !String(process.env[k]).trim());
-}
-
-/* ------------------ CRON PARSER ------------------ */
-
+// Minimal 5-field cron scheduler (minute hour dom mon dow)
 function parsePart(part, min, max) {
   const out = new Set();
 
@@ -69,8 +55,7 @@ function parsePart(part, min, max) {
 
 function parseCron5(expr) {
   const parts = String(expr).trim().split(/\s+/);
-  if (parts.length !== 5)
-    throw new Error("Cron must have 5 fields: min hour dom mon dow");
+  if (parts.length !== 5) throw new Error("Cron must have 5 fields: min hour dom mon dow");
 
   const [minP, hourP, domP, monP, dowP] = parts;
 
@@ -79,6 +64,7 @@ function parseCron5(expr) {
   const dom = parsePart(domP, 1, 31);
   const mon = parsePart(monP, 1, 12);
 
+  // DOW: allow 7 as Sunday, convert to 0
   let dowNorm = String(dowP).replace(/\b7\b/g, "0");
   const dow = parsePart(dowNorm, 0, 6);
 
@@ -88,22 +74,20 @@ function parseCron5(expr) {
   return { minutes, hours, dom, mon, dow };
 }
 
-/* ------------------ CRON SCHEDULER ------------------ */
-
 function nextRunFromCron(expr, zone, fromDt) {
   const cron = parseCron5(expr);
 
-  // 🔥 FIXED: do NOT skip the current minute
+  // 🔥 ONLY CHANGE: removed +1 minute
   let dt = fromDt.setZone(zone).startOf("minute");
 
   const maxSteps = 60 * 24 * 60; // 60 days
-
   for (let i = 0; i < maxSteps; i++) {
     const m = dt.minute;
     const h = dt.hour;
     const day = dt.day;
     const month = dt.month;
 
+    // Luxon weekday: 1=Mon..7=Sun, convert to 0=Sun..6=Sat
     const wd = dt.weekday === 7 ? 0 : dt.weekday;
 
     if (
@@ -115,14 +99,11 @@ function nextRunFromCron(expr, zone, fromDt) {
     ) {
       return dt;
     }
-
     dt = dt.plus({ minutes: 1 });
   }
 
-  throw new Error("No next run found within 60 days");
+  throw new Error("No next run found within 60 days, cron may be too restrictive");
 }
-
-/* ------------------ MERGE DAYS ------------------ */
 
 function mergeDaysByDate(daysA, daysB) {
   const map = new Map();
@@ -143,8 +124,6 @@ function mergeDaysByDate(daysA, daysB) {
   );
 }
 
-/* ------------------ NODE HELPER ------------------ */
-
 module.exports = NodeHelper.create({
   start() {
     this.config = null;
@@ -159,7 +138,7 @@ module.exports = NodeHelper.create({
       // Run once on startup
       this.runScrape("startup").catch(() => null);
 
-      // Schedule from refreshCron
+      // Schedule from refreshCron (if provided)
       this.scheduleFromCron();
       return;
     }
@@ -204,16 +183,6 @@ module.exports = NodeHelper.create({
       process.env.TIMEZONE ||
       (this.config && this.config.timezone) ||
       "America/Toronto";
-
-    // 🔎 Validate scraper config before running
-    const missing = missingScraperConfig();
-    if (missing.length) {
-      this.sendSocketNotification("WEEK_ERROR", {
-        reason: "config",
-        error: "Missing required scraper config: " + missing.join(", "),
-      });
-      return;
-    }
 
     const now = DateTime.now().setZone(timezone);
     const thisMonthBaseISO = now.toISODate();
