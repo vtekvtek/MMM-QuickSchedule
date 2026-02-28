@@ -5,7 +5,21 @@ require("dotenv").config({ path: path.join(__dirname, ".env") });
 const { DateTime } = require("luxon");
 const { scrapeToIcs } = require("./scraper");
 
-// Minimal 5-field cron scheduler (minute hour dom mon dow)
+/* ------------------ CONFIG VALIDATION ------------------ */
+
+function missingScraperConfig() {
+  const required = [
+    "QS_USERNAME",
+    "QS_PASSWORD",
+    "QS_LOGIN_URL",
+    "TECH_NAME",
+    "OUT_ICS",
+  ];
+  return required.filter((k) => !process.env[k] || !String(process.env[k]).trim());
+}
+
+/* ------------------ CRON PARSER ------------------ */
+
 function parsePart(part, min, max) {
   const out = new Set();
 
@@ -65,7 +79,6 @@ function parseCron5(expr) {
   const dom = parsePart(domP, 1, 31);
   const mon = parsePart(monP, 1, 12);
 
-  // DOW: allow 7 as Sunday, convert to 0
   let dowNorm = String(dowP).replace(/\b7\b/g, "0");
   const dow = parsePart(dowNorm, 0, 6);
 
@@ -75,13 +88,13 @@ function parseCron5(expr) {
   return { minutes, hours, dom, mon, dow };
 }
 
+/* ------------------ CRON SCHEDULER ------------------ */
+
 function nextRunFromCron(expr, zone, fromDt) {
   const cron = parseCron5(expr);
 
-  let dt = fromDt
-    .setZone(zone)
-    .startOf("minute")
-    .plus({ minutes: 1 });
+  // 🔥 FIXED: do NOT skip the current minute
+  let dt = fromDt.setZone(zone).startOf("minute");
 
   const maxSteps = 60 * 24 * 60; // 60 days
 
@@ -91,7 +104,6 @@ function nextRunFromCron(expr, zone, fromDt) {
     const day = dt.day;
     const month = dt.month;
 
-    // Luxon weekday: 1=Mon..7=Sun, convert to 0=Sun..6=Sat
     const wd = dt.weekday === 7 ? 0 : dt.weekday;
 
     if (
@@ -107,10 +119,10 @@ function nextRunFromCron(expr, zone, fromDt) {
     dt = dt.plus({ minutes: 1 });
   }
 
-  throw new Error(
-    "No next run found within 60 days, cron may be too restrictive"
-  );
+  throw new Error("No next run found within 60 days");
 }
+
+/* ------------------ MERGE DAYS ------------------ */
 
 function mergeDaysByDate(daysA, daysB) {
   const map = new Map();
@@ -131,6 +143,8 @@ function mergeDaysByDate(daysA, daysB) {
   );
 }
 
+/* ------------------ NODE HELPER ------------------ */
+
 module.exports = NodeHelper.create({
   start() {
     this.config = null;
@@ -145,7 +159,7 @@ module.exports = NodeHelper.create({
       // Run once on startup
       this.runScrape("startup").catch(() => null);
 
-      // Schedule from refreshCron (if provided)
+      // Schedule from refreshCron
       this.scheduleFromCron();
       return;
     }
@@ -168,25 +182,16 @@ module.exports = NodeHelper.create({
 
     let next;
     try {
-      next = nextRunFromCron(
-        cronExpr,
-        timezone,
-        DateTime.now().setZone(timezone)
-      );
+      next = nextRunFromCron(cronExpr, timezone, DateTime.now().setZone(timezone));
     } catch (e) {
       this.sendSocketNotification("WEEK_ERROR", {
         reason: "cron-parse",
-        error:
-          "Invalid refreshCron: " +
-          String(e && e.message ? e.message : e),
+        error: "Invalid refreshCron: " + String(e && e.message ? e.message : e),
       });
       return;
     }
 
-    const ms = Math.max(
-      1000,
-      next.toMillis() - DateTime.now().toMillis()
-    );
+    const ms = Math.max(1000, next.toMillis() - DateTime.now().toMillis());
 
     this.timer = setTimeout(async () => {
       await this.runScrape("cron").catch(() => null);
@@ -200,16 +205,19 @@ module.exports = NodeHelper.create({
       (this.config && this.config.timezone) ||
       "America/Toronto";
 
+    // 🔎 Validate scraper config before running
+    const missing = missingScraperConfig();
+    if (missing.length) {
+      this.sendSocketNotification("WEEK_ERROR", {
+        reason: "config",
+        error: "Missing required scraper config: " + missing.join(", "),
+      });
+      return;
+    }
+
     const now = DateTime.now().setZone(timezone);
-
-    // Any date inside current month
     const thisMonthBaseISO = now.toISODate();
-
-    // First day of next month
-    const nextMonthBaseISO = now
-      .plus({ months: 1 })
-      .startOf("month")
-      .toISODate();
+    const nextMonthBaseISO = now.plus({ months: 1 }).startOf("month").toISODate();
 
     try {
       const [cur, nxt] = await Promise.all([
@@ -243,13 +251,6 @@ module.exports = NodeHelper.create({
         scheduleUrl: cur.scheduleUrl,
         outIcs: cur.outIcs,
         days: mergedDays,
-        monthRowCount:
-          (cur.monthRowCount || 0) +
-          (nxt.monthRowCount || 0),
-        curMonthRowCount: cur.monthRowCount,
-        nextMonthRowCount: nxt.monthRowCount,
-        baseDateISO: thisMonthBaseISO,
-        nextMonthBaseISO,
         updatedAt: DateTime.now().setZone(timezone).toISO(),
         fresh: true,
       };
@@ -264,8 +265,7 @@ module.exports = NodeHelper.create({
 
       this.sendSocketNotification("WEEK_ERROR", {
         reason,
-        error:
-          String(e && e.message ? e.message : e),
+        error: String(e && e.message ? e.message : e),
       });
     }
   },
