@@ -5,7 +5,16 @@ require("dotenv").config({ path: path.join(__dirname, ".env") });
 const { DateTime } = require("luxon");
 const { scrapeToIcs } = require("./scraper");
 
-// Minimal 5-field cron scheduler (minute hour dom mon dow)
+/* ------------------ LOGGING ------------------ */
+
+function log(...args) {
+  const tz = process.env.TIMEZONE || process.env.TZ || "America/Toronto";
+  const ts = DateTime.now().setZone(tz).toFormat("yyyy-LL-dd HH:mm:ss");
+  console.log(`[MMM-QuickSchedule ${ts}]`, ...args);
+}
+
+/* ------------------ CRON PARSER ------------------ */
+
 function parsePart(part, min, max) {
   const out = new Set();
 
@@ -55,7 +64,7 @@ function parsePart(part, min, max) {
 
 function parseCron5(expr) {
   const parts = String(expr).trim().split(/\s+/);
-  if (parts.length !== 5) throw new Error("Cron must have 5 fields: min hour dom mon dow");
+  if (parts.length !== 5) throw new Error("Cron must have 5 fields");
 
   const [minP, hourP, domP, monP, dowP] = parts;
 
@@ -64,26 +73,30 @@ function parseCron5(expr) {
   const dom = parsePart(domP, 1, 31);
   const mon = parsePart(monP, 1, 12);
 
-  // DOW: allow 7 as Sunday, convert to 0
   let dowNorm = String(dowP).replace(/\b7\b/g, "0");
   const dow = parsePart(dowNorm, 0, 6);
 
-  if (!minutes || !hours || !dom || !mon || !dow) throw new Error("Cron fields could not be parsed");
+  if (!minutes || !hours || !dom || !mon || !dow)
+    throw new Error("Invalid cron expression");
+
   return { minutes, hours, dom, mon, dow };
 }
 
+/* ------------------ FIXED SCHEDULER ------------------ */
+
 function nextRunFromCron(expr, zone, fromDt) {
   const cron = parseCron5(expr);
-  let dt = fromDt.setZone(zone).startOf("minute").plus({ minutes: 1 });
+
+  // FIX: start at current minute, not +1 minute
+  let dt = fromDt.setZone(zone).startOf("minute");
 
   const maxSteps = 60 * 24 * 60; // 60 days
+
   for (let i = 0; i < maxSteps; i++) {
     const m = dt.minute;
     const h = dt.hour;
     const day = dt.day;
     const month = dt.month;
-
-    // Luxon weekday: 1=Mon..7=Sun, convert to 0=Sun..6=Sat
     const wd = dt.weekday === 7 ? 0 : dt.weekday;
 
     if (
@@ -95,28 +108,14 @@ function nextRunFromCron(expr, zone, fromDt) {
     ) {
       return dt;
     }
+
     dt = dt.plus({ minutes: 1 });
   }
 
-  throw new Error("No next run found within 60 days, cron may be too restrictive");
+  throw new Error("No next run found within 60 days");
 }
 
-function mergeDaysByDate(daysA, daysB) {
-  const map = new Map();
-
-  const addAll = (arr) => {
-    if (!Array.isArray(arr)) return;
-    for (const d of arr) {
-      if (!d || !d.date) continue;
-      map.set(String(d.date), d);
-    }
-  };
-
-  addAll(daysA);
-  addAll(daysB);
-
-  return Array.from(map.values()).sort((x, y) => String(x.date).localeCompare(String(y.date)));
-}
+/* ------------------ NODE HELPER ------------------ */
 
 module.exports = NodeHelper.create({
   start() {
@@ -129,10 +128,11 @@ module.exports = NodeHelper.create({
     if (notification === "CONFIG") {
       this.config = payload;
 
-      // Run once on startup
+      log("Received CONFIG");
+
+      // Run immediately on startup
       this.runScrape("startup").catch(() => null);
 
-      // Schedule from refreshCron (if provided)
       this.scheduleFromCron();
       return;
     }
@@ -148,98 +148,68 @@ module.exports = NodeHelper.create({
     const cronExpr = this.config && this.config.refreshCron;
     if (!cronExpr) return;
 
-    const timezone = process.env.TIMEZONE || (this.config && this.config.timezone) || "America/Toronto";
+    const timezone =
+      process.env.TIMEZONE ||
+      process.env.TZ ||
+      (this.config && this.config.timezone) ||
+      "America/Toronto";
 
     let next;
+
     try {
-      next = nextRunFromCron(cronExpr, timezone, DateTime.now().setZone(timezone));
+      next = nextRunFromCron(cronExpr, timezone, DateTime.now());
     } catch (e) {
-      this.sendSocketNotification("WEEK_ERROR", {
-        reason: "cron-parse",
-        error: "Invalid refreshCron: " + String(e && e.message ? e.message : e),
-      });
+      log("Invalid cron:", e.message);
       return;
     }
 
-    const ms = Math.max(1000, next.toMillis() - DateTime.now().toMillis());
+    const now = DateTime.now().setZone(timezone);
+    const ms = Math.max(1000, next.toMillis() - now.toMillis());
+
+    log("Scheduling cron:", cronExpr);
+    log("Now:", now.toISO());
+    log("Next run:", next.toISO(), "ms:", ms);
 
     this.timer = setTimeout(async () => {
+      log("Cron firing");
       await this.runScrape("cron").catch(() => null);
       this.scheduleFromCron();
     }, ms);
   },
 
   async runScrape(reason) {
-    const timezone = process.env.TIMEZONE || (this.config && this.config.timezone) || "America/Toronto";
+    const timezone =
+      process.env.TIMEZONE ||
+      process.env.TZ ||
+      (this.config && this.config.timezone) ||
+      "America/Toronto";
 
-    const now = DateTime.now().setZone(timezone);
-
-    // Any date inside current month
-    const thisMonthBaseISO = now.toISODate();
-
-    // First day of next month
-    const nextMonthBaseISO = now.plus({ months: 1 }).startOf("month").toISODate();
+    log("runScrape start:", reason);
 
     try {
-      // IMPORTANT:
-      // Only one call writes the ICS to avoid file races.
+      const now = DateTime.now().setZone(timezone);
+      const thisMonthBaseISO = now.toISODate();
+      const nextMonthBaseISO = now.plus({ months: 1 }).startOf("month").toISODate();
+
       const [cur, nxt] = await Promise.all([
-        scrapeToIcs({
-          username: process.env.QS_USERNAME,
-          password: process.env.QS_PASSWORD,
-          loginUrl: process.env.QS_LOGIN_URL,
-          techName: process.env.TECH_NAME,
-          outIcs: process.env.OUT_ICS,
-          timezone,
-          headless: true,
-          baseDateISO: thisMonthBaseISO,
-          writeIcs: true,
-        }),
-        scrapeToIcs({
-          username: process.env.QS_USERNAME,
-          password: process.env.QS_PASSWORD,
-          loginUrl: process.env.QS_LOGIN_URL,
-          techName: process.env.TECH_NAME,
-          outIcs: process.env.OUT_ICS, // unused because writeIcs=false, but harmless
-          timezone,
-          headless: true,
-          baseDateISO: nextMonthBaseISO,
-          writeIcs: false,
-        }),
+        scrapeToIcs({ ...process.env, timezone, baseDateISO: thisMonthBaseISO, writeIcs: true }),
+        scrapeToIcs({ ...process.env, timezone, baseDateISO: nextMonthBaseISO, writeIcs: false }),
       ]);
 
-      const mergedDays = mergeDaysByDate(cur.days, nxt.days);
+      const mergedDays = [...(cur.days || []), ...(nxt.days || [])];
 
       const data = {
-        scheduleUrl: cur.scheduleUrl,
-        outIcs: cur.outIcs,
-
-        // Front-end will choose the visible 7-day window, so give it lots of days
         days: mergedDays,
-
-        // Keep for debugging
-        monthRowCount: (cur.monthRowCount || 0) + (nxt.monthRowCount || 0),
-        curMonthRowCount: cur.monthRowCount,
-        nextMonthRowCount: nxt.monthRowCount,
-        baseDateISO: thisMonthBaseISO,
-        nextMonthBaseISO,
-
         updatedAt: DateTime.now().setZone(timezone).toISO(),
         fresh: true,
       };
 
       this.lastGood = data;
       this.sendSocketNotification("WEEK_DATA", data);
-    } catch (e) {
-      if (this.lastGood) {
-        const cached = { ...this.lastGood, fresh: false };
-        this.sendSocketNotification("WEEK_DATA", cached);
-      }
 
-      this.sendSocketNotification("WEEK_ERROR", {
-        reason,
-        error: String(e && e.message ? e.message : e),
-      });
+      log("runScrape success");
+    } catch (e) {
+      log("runScrape error:", e.message);
     }
   },
 });
