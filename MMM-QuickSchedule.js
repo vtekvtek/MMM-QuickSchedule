@@ -11,7 +11,28 @@ Module.register("MMM-QuickSchedule", {
   start() {
     this.week = null;
     this.error = null;
+
+    console.log("[MMM-QuickSchedule] start()");
     this.sendSocketNotification("CONFIG", this.config);
+
+    // Ask again shortly after startup in case initial WEEK_DATA is missed
+    setTimeout(() => {
+      console.log("[MMM-QuickSchedule] startup FORCE_REFRESH");
+      this.sendSocketNotification("FORCE_REFRESH");
+    }, 4000);
+
+    // Safety: if still empty after a bit, request again
+    setTimeout(() => {
+      if (!this.week && !this.error) {
+        console.log("[MMM-QuickSchedule] still empty after 10s, FORCE_REFRESH");
+        this.sendSocketNotification("FORCE_REFRESH");
+      }
+    }, 10000);
+  },
+
+  resume() {
+    console.log("[MMM-QuickSchedule] resume(), FORCE_REFRESH");
+    this.sendSocketNotification("FORCE_REFRESH");
   },
 
   getStyles() {
@@ -19,6 +40,8 @@ Module.register("MMM-QuickSchedule", {
   },
 
   socketNotificationReceived(notification, payload) {
+    console.log("[MMM-QuickSchedule] socketNotificationReceived:", notification, payload);
+
     if (notification === "WEEK_DATA") {
       this.week = payload;
       this.error = null;
@@ -85,8 +108,8 @@ Module.register("MMM-QuickSchedule", {
     }
 
     // Weekend logic: Sat/Sun show NEXT ISO week (Mon-Sun), otherwise THIS ISO week
-    const now = moment().tz(this.config.timezone);
-    const isoDowNow = now.isoWeekday(); // 1=Mon ... 7=Sun
+    const now = moment.tz(this.config.timezone);
+    const isoDowNow = now.isoWeekday();
     const isWeekendNow = (isoDowNow === 6 || isoDowNow === 7);
 
     let start;
@@ -96,8 +119,9 @@ Module.register("MMM-QuickSchedule", {
       start = now.clone().startOf("isoWeek");
     }
 
-    const todayKey = now.format("YYYY-MM-DD");
-    const highlightToday = !isWeekendNow; // on weekends we're viewing next week
+    const todayKey = now.clone().startOf("day").format("YYYY-MM-DD");
+    const end = start.clone().add(6, "days");
+    const todayInView = now.isSameOrAfter(start, "day") && now.isSameOrBefore(end, "day");
 
     for (let i = 0; i < 7; i++) {
       const m = start.clone().add(i, "days");
@@ -137,13 +161,13 @@ Module.register("MMM-QuickSchedule", {
         cell.classList.add("qs-other");
       }
 
-      // Weekend coloring (based on tile date)
+      // Weekend coloring
       const isoDow = m.isoWeekday();
       if (isoDow === 6) cell.classList.add("qs-sat");
       if (isoDow === 7) cell.classList.add("qs-sun");
 
-      // Highlight today only when viewing the current week
-      if (highlightToday && dateKey === todayKey) {
+      // Highlight today only if today is actually visible in the 7 tiles
+      if (todayInView && dateKey === todayKey) {
         cell.classList.add("qs-today");
       }
 
