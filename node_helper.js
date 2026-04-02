@@ -11,17 +11,19 @@ const LOGFILE = "/home/magicmirror/qs-nodehelper.log";
 function log(...args) {
   const msg =
     `[${new Date().toISOString()}] ` +
-    args.map((a) => {
-      if (a instanceof Error) return a.stack || a.message;
-      if (typeof a === "object") {
-        try {
-          return JSON.stringify(a);
-        } catch {
-          return String(a);
+    args
+      .map((a) => {
+        if (a instanceof Error) return a.stack || a.message;
+        if (typeof a === "object") {
+          try {
+            return JSON.stringify(a);
+          } catch {
+            return String(a);
+          }
         }
-      }
-      return String(a);
-    }).join(" ");
+        return String(a);
+      })
+      .join(" ");
 
   console.log(msg);
   try {
@@ -121,7 +123,6 @@ function parseCron5(expr) {
 function nextRunFromCron(expr, zone, fromDt) {
   const cron = parseCron5(expr);
 
-  // Do not skip the current minute
   let dt = fromDt.setZone(zone).startOf("minute");
 
   const maxSteps = 60 * 24 * 60; // 60 days
@@ -178,6 +179,8 @@ module.exports = NodeHelper.create({
     this.config = null;
     this.lastGood = null;
     this.timer = null;
+    this.isScraping = false;
+    this.pendingReason = null;
     log("NodeHelper started");
   },
 
@@ -185,17 +188,25 @@ module.exports = NodeHelper.create({
     log("socketNotificationReceived:", notification);
 
     if (notification === "CONFIG") {
+      const sameConfig =
+        this.config &&
+        JSON.stringify(this.config) === JSON.stringify(payload);
+
       this.config = payload;
+
       log("CONFIG received", {
         timezone: this.config && this.config.timezone,
         refreshCron: this.config && this.config.refreshCron,
+        duplicate: !!sameConfig,
       });
 
-      this.runScrape("startup").catch((e) => {
-        log("Startup scrape error:", e);
-      });
+      if (!sameConfig) {
+        this.runScrape("startup").catch((e) => {
+          log("Startup scrape error:", e);
+        });
+        this.scheduleFromCron();
+      }
 
-      this.scheduleFromCron();
       return;
     }
 
@@ -262,29 +273,35 @@ module.exports = NodeHelper.create({
       (this.config && this.config.timezone) ||
       "America/Toronto";
 
-    log("runScrape starting", { reason, timezone });
-
-    const missing = missingScraperConfig();
-    if (missing.length) {
-      log("Missing scraper config:", missing);
-      this.sendSocketNotification("WEEK_ERROR", {
-        reason: "config",
-        error: "Missing required scraper config: " + missing.join(", "),
-      });
+    if (this.isScraping) {
+      log("runScrape skipped, already running", { reason });
+      this.pendingReason = reason;
       return;
     }
 
-    const now = DateTime.now().setZone(timezone);
-    const thisMonthBaseISO = now.toISODate();
-    const nextMonthBaseISO = now.plus({ months: 1 }).startOf("month").toISODate();
-
-    log("Scrape date window", {
-      thisMonthBaseISO,
-      nextMonthBaseISO,
-    });
+    this.isScraping = true;
+    log("runScrape starting", { reason, timezone });
 
     try {
-      // Run sequentially to avoid session/login race conditions
+      const missing = missingScraperConfig();
+      if (missing.length) {
+        log("Missing scraper config:", missing);
+        this.sendSocketNotification("WEEK_ERROR", {
+          reason: "config",
+          error: "Missing required scraper config: " + missing.join(", "),
+        });
+        return;
+      }
+
+      const now = DateTime.now().setZone(timezone);
+      const thisMonthBaseISO = now.toISODate();
+      const nextMonthBaseISO = now.plus({ months: 1 }).startOf("month").toISODate();
+
+      log("Scrape date window", {
+        thisMonthBaseISO,
+        nextMonthBaseISO,
+      });
+
       log("Starting current month scrape");
       const cur = await scrapeToIcs({
         username: process.env.QS_USERNAME,
@@ -348,6 +365,17 @@ module.exports = NodeHelper.create({
         reason,
         error: String(e && e.message ? e.message : e),
       });
+    } finally {
+      this.isScraping = false;
+
+      if (this.pendingReason) {
+        const pending = this.pendingReason;
+        this.pendingReason = null;
+        log("Running pending scrape", { reason: pending });
+        this.runScrape(pending).catch((e) => {
+          log("Pending scrape error:", e);
+        });
+      }
     }
   },
 });
