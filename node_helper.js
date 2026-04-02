@@ -33,8 +33,6 @@ function log(...args) {
   }
 }
 
-/* ------------------ CONFIG VALIDATION ------------------ */
-
 function missingScraperConfig() {
   const required = [
     "QS_USERNAME",
@@ -45,8 +43,6 @@ function missingScraperConfig() {
   ];
   return required.filter((k) => !process.env[k] || !String(process.env[k]).trim());
 }
-
-/* ------------------ CRON PARSER ------------------ */
 
 function parsePart(part, min, max) {
   const out = new Set();
@@ -118,14 +114,12 @@ function parseCron5(expr) {
   return { minutes, hours, dom, mon, dow };
 }
 
-/* ------------------ CRON SCHEDULER ------------------ */
-
 function nextRunFromCron(expr, zone, fromDt) {
   const cron = parseCron5(expr);
 
   let dt = fromDt.setZone(zone).startOf("minute");
 
-  const maxSteps = 60 * 24 * 60; // 60 days
+  const maxSteps = 60 * 24 * 60;
 
   for (let i = 0; i < maxSteps; i++) {
     const m = dt.minute;
@@ -151,8 +145,6 @@ function nextRunFromCron(expr, zone, fromDt) {
   throw new Error("No next run found within 60 days");
 }
 
-/* ------------------ MERGE DAYS ------------------ */
-
 function mergeDaysByDate(daysA, daysB) {
   const map = new Map();
 
@@ -171,8 +163,6 @@ function mergeDaysByDate(daysA, daysB) {
     String(x.date).localeCompare(String(y.date))
   );
 }
-
-/* ------------------ NODE HELPER ------------------ */
 
 module.exports = NodeHelper.create({
   start() {
@@ -328,7 +318,14 @@ module.exports = NodeHelper.create({
         writeIcs: false,
       });
 
+      log("Both scrapes returned", {
+        curDays: Array.isArray(cur.days) ? cur.days.length : -1,
+        nxtDays: Array.isArray(nxt.days) ? nxt.days.length : -1,
+      });
+
       const mergedDays = mergeDaysByDate(cur.days, nxt.days);
+
+      log("Merged days built", { mergedDays: mergedDays.length });
 
       const data = {
         scheduleUrl: cur.scheduleUrl,
@@ -348,6 +345,7 @@ module.exports = NodeHelper.create({
         outIcs: cur.outIcs,
       });
 
+      log("Sending WEEK_DATA");
       this.sendSocketNotification("WEEK_DATA", data);
     } catch (e) {
       log("runScrape failed", {
