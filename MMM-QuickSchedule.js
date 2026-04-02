@@ -15,19 +15,11 @@ Module.register("MMM-QuickSchedule", {
     console.log("[MMM-QuickSchedule] start()");
     this.sendSocketNotification("CONFIG", this.config);
 
-    // Ask again shortly after startup in case initial WEEK_DATA is missed
+    // One delayed refresh after startup, enough to recover from startup timing issues
     setTimeout(() => {
       console.log("[MMM-QuickSchedule] startup FORCE_REFRESH");
       this.sendSocketNotification("FORCE_REFRESH");
     }, 4000);
-
-    // Safety: if still empty after a bit, request again
-    setTimeout(() => {
-      if (!this.week && !this.error) {
-        console.log("[MMM-QuickSchedule] still empty after 10s, FORCE_REFRESH");
-        this.sendSocketNotification("FORCE_REFRESH");
-      }
-    }, 10000);
   },
 
   resume() {
@@ -45,13 +37,13 @@ Module.register("MMM-QuickSchedule", {
     if (notification === "WEEK_DATA") {
       this.week = payload;
       this.error = null;
-      this.updateDom();
+      this.updateDom(300);
       return;
     }
 
     if (notification === "WEEK_ERROR") {
       this.error = payload;
-      this.updateDom();
+      this.updateDom(300);
       return;
     }
   },
@@ -66,7 +58,7 @@ Module.register("MMM-QuickSchedule", {
     title.textContent = this.config.title;
     wrapper.appendChild(title);
 
-    // Last updated (timezone-safe)
+    // Last updated
     if (this.week && this.week.updatedAt) {
       const updated = document.createElement("div");
       const when = moment.tz(this.week.updatedAt, this.config.timezone).format("MMM D, h:mm A");
@@ -107,7 +99,7 @@ Module.register("MMM-QuickSchedule", {
       }
     }
 
-    // Weekend logic: Sat/Sun show NEXT ISO week (Mon-Sun), otherwise THIS ISO week
+    // Weekend logic: Sat/Sun show next ISO week, otherwise this ISO week
     const now = moment.tz(this.config.timezone);
     const isoDowNow = now.isoWeekday();
     const isWeekendNow = (isoDowNow === 6 || isoDowNow === 7);
@@ -130,7 +122,7 @@ Module.register("MMM-QuickSchedule", {
 
       const item = byDate.get(dateKey);
 
-      // TBD logic: missing future entries show TBD, missing past/today show —
+      // Missing future entries show TBD, missing past/today show —
       const isMissing = !item || !item.desc;
       const isFuture = m.isAfter(now, "day");
       const descRaw = isMissing ? (isFuture ? "TBD" : "—") : item.desc;
@@ -144,7 +136,6 @@ Module.register("MMM-QuickSchedule", {
       const cell = document.createElement("div");
       cell.className = "qs-cell";
 
-      // classify shift type
       const descText = String(descRaw || "").trim();
 
       if (isOff) {
@@ -161,12 +152,10 @@ Module.register("MMM-QuickSchedule", {
         cell.classList.add("qs-other");
       }
 
-      // Weekend coloring
       const isoDow = m.isoWeekday();
       if (isoDow === 6) cell.classList.add("qs-sat");
       if (isoDow === 7) cell.classList.add("qs-sun");
 
-      // Highlight today only if today is actually visible in the 7 tiles
       if (todayInView && dateKey === todayKey) {
         cell.classList.add("qs-today");
       }
