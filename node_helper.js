@@ -1,9 +1,35 @@
 const NodeHelper = require("node_helper");
 const path = require("path");
+const fs = require("fs");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 
 const { DateTime } = require("luxon");
 const { scrapeToIcs } = require("./scraper");
+
+const LOGFILE = "/home/magicmirror/qs-nodehelper.log";
+
+function log(...args) {
+  const msg =
+    `[${new Date().toISOString()}] ` +
+    args.map((a) => {
+      if (a instanceof Error) return a.stack || a.message;
+      if (typeof a === "object") {
+        try {
+          return JSON.stringify(a);
+        } catch {
+          return String(a);
+        }
+      }
+      return String(a);
+    }).join(" ");
+
+  console.log(msg);
+  try {
+    fs.appendFileSync(LOGFILE, msg + "\n", "utf8");
+  } catch (e) {
+    console.error("Failed writing qs-nodehelper log:", e);
+  }
+}
 
 /* ------------------ CONFIG VALIDATION ------------------ */
 
@@ -69,8 +95,9 @@ function parsePart(part, min, max) {
 
 function parseCron5(expr) {
   const parts = String(expr).trim().split(/\s+/);
-  if (parts.length !== 5)
+  if (parts.length !== 5) {
     throw new Error("Cron must have 5 fields: min hour dom mon dow");
+  }
 
   const [minP, hourP, domP, monP, dowP] = parts;
 
@@ -82,8 +109,9 @@ function parseCron5(expr) {
   let dowNorm = String(dowP).replace(/\b7\b/g, "0");
   const dow = parsePart(dowNorm, 0, 6);
 
-  if (!minutes || !hours || !dom || !mon || !dow)
+  if (!minutes || !hours || !dom || !mon || !dow) {
     throw new Error("Cron fields could not be parsed");
+  }
 
   return { minutes, hours, dom, mon, dow };
 }
@@ -93,7 +121,7 @@ function parseCron5(expr) {
 function nextRunFromCron(expr, zone, fromDt) {
   const cron = parseCron5(expr);
 
-  // 🔥 FIXED: do NOT skip the current minute
+  // Do not skip the current minute
   let dt = fromDt.setZone(zone).startOf("minute");
 
   const maxSteps = 60 * 24 * 60; // 60 days
@@ -150,30 +178,46 @@ module.exports = NodeHelper.create({
     this.config = null;
     this.lastGood = null;
     this.timer = null;
+    log("NodeHelper started");
   },
 
   socketNotificationReceived(notification, payload) {
+    log("socketNotificationReceived:", notification);
+
     if (notification === "CONFIG") {
       this.config = payload;
+      log("CONFIG received", {
+        timezone: this.config && this.config.timezone,
+        refreshCron: this.config && this.config.refreshCron,
+      });
 
-      // Run once on startup
-      this.runScrape("startup").catch(() => null);
+      this.runScrape("startup").catch((e) => {
+        log("Startup scrape error:", e);
+      });
 
-      // Schedule from refreshCron
       this.scheduleFromCron();
       return;
     }
 
     if (notification === "FORCE_REFRESH") {
-      this.runScrape("manual").catch(() => null);
+      log("FORCE_REFRESH received");
+      this.runScrape("manual").catch((e) => {
+        log("Manual scrape error:", e);
+      });
     }
   },
 
   scheduleFromCron() {
-    if (this.timer) clearTimeout(this.timer);
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
 
     const cronExpr = this.config && this.config.refreshCron;
-    if (!cronExpr) return;
+    if (!cronExpr) {
+      log("No refreshCron configured, skipping scheduler");
+      return;
+    }
 
     const timezone =
       process.env.TIMEZONE ||
@@ -184,6 +228,7 @@ module.exports = NodeHelper.create({
     try {
       next = nextRunFromCron(cronExpr, timezone, DateTime.now().setZone(timezone));
     } catch (e) {
+      log("Invalid refreshCron:", cronExpr, e);
       this.sendSocketNotification("WEEK_ERROR", {
         reason: "cron-parse",
         error: "Invalid refreshCron: " + String(e && e.message ? e.message : e),
@@ -191,10 +236,22 @@ module.exports = NodeHelper.create({
       return;
     }
 
-    const ms = Math.max(1000, next.toMillis() - DateTime.now().toMillis());
+    const now = DateTime.now().setZone(timezone);
+    let ms = Math.max(1000, next.toMillis() - now.toMillis());
+
+    log("Next cron run scheduled", {
+      cronExpr,
+      timezone,
+      now: now.toISO(),
+      next: next.toISO(),
+      delayMs: ms,
+    });
 
     this.timer = setTimeout(async () => {
-      await this.runScrape("cron").catch(() => null);
+      log("Cron timer fired");
+      await this.runScrape("cron").catch((e) => {
+        log("Cron scrape error:", e);
+      });
       this.scheduleFromCron();
     }, ms);
   },
@@ -205,9 +262,11 @@ module.exports = NodeHelper.create({
       (this.config && this.config.timezone) ||
       "America/Toronto";
 
-    // 🔎 Validate scraper config before running
+    log("runScrape starting", { reason, timezone });
+
     const missing = missingScraperConfig();
     if (missing.length) {
+      log("Missing scraper config:", missing);
       this.sendSocketNotification("WEEK_ERROR", {
         reason: "config",
         error: "Missing required scraper config: " + missing.join(", "),
@@ -218,6 +277,11 @@ module.exports = NodeHelper.create({
     const now = DateTime.now().setZone(timezone);
     const thisMonthBaseISO = now.toISODate();
     const nextMonthBaseISO = now.plus({ months: 1 }).startOf("month").toISODate();
+
+    log("Scrape date window", {
+      thisMonthBaseISO,
+      nextMonthBaseISO,
+    });
 
     try {
       const [cur, nxt] = await Promise.all([
@@ -256,10 +320,22 @@ module.exports = NodeHelper.create({
       };
 
       this.lastGood = data;
+
+      log("runScrape success", {
+        reason,
+        currentMonthDays: Array.isArray(cur.days) ? cur.days.length : 0,
+        nextMonthDays: Array.isArray(nxt.days) ? nxt.days.length : 0,
+        mergedDays: mergedDays.length,
+        outIcs: cur.outIcs,
+      });
+
       this.sendSocketNotification("WEEK_DATA", data);
     } catch (e) {
+      log("runScrape failed", { reason, error: e instanceof Error ? e.message : String(e) });
+
       if (this.lastGood) {
         const cached = { ...this.lastGood, fresh: false };
+        log("Sending cached WEEK_DATA after failure");
         this.sendSocketNotification("WEEK_DATA", cached);
       }
 
