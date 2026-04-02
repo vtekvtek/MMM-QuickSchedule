@@ -4,6 +4,33 @@ const { DateTime } = require("luxon");
 const fs = require("fs");
 const path = require("path");
 
+const LOGFILE = "/home/magicmirror/qs-scraper.log";
+const DEBUG_HTML = "/tmp/qs-error.html";
+const DEBUG_PNG = "/tmp/qs-error.png";
+
+function log(...args) {
+  const msg =
+    `[${new Date().toISOString()}] ` +
+    args.map((a) => {
+      if (a instanceof Error) return a.stack || a.message;
+      if (typeof a === "object") {
+        try {
+          return JSON.stringify(a);
+        } catch {
+          return String(a);
+        }
+      }
+      return String(a);
+    }).join(" ");
+
+  console.log(msg);
+  try {
+    fs.appendFileSync(LOGFILE, msg + "\n", "utf8");
+  } catch (e) {
+    console.error("Failed writing log:", e);
+  }
+}
+
 function mondayStart(dt) {
   return dt.startOf("day").minus({ days: dt.weekday - 1 });
 }
@@ -78,6 +105,17 @@ function selectorFor(field) {
   return `input[name="${field.name}"]`;
 }
 
+async function writeDebugArtifacts(page, reason) {
+  try {
+    const html = await page.content();
+    fs.writeFileSync(DEBUG_HTML, html, "utf8");
+    await page.screenshot({ path: DEBUG_PNG, fullPage: true });
+    log("Saved debug artifacts:", reason, DEBUG_HTML, DEBUG_PNG, "URL:", page.url());
+  } catch (e) {
+    log("Failed saving debug artifacts:", e);
+  }
+}
+
 async function scrapeToIcs(config) {
   const {
     username,
@@ -88,9 +126,6 @@ async function scrapeToIcs(config) {
     timezone,
     headless = true,
     baseDateISO = null,
-
-    // NEW:
-    // If false, we scrape and return data but do not write ICS.
     writeIcs = true,
   } = config;
 
@@ -105,150 +140,203 @@ async function scrapeToIcs(config) {
     ? DateTime.fromISO(baseDateISO, { zone: timezone })
     : DateTime.now().setZone(timezone);
 
-  const browser = await puppeteer.launch({
-    headless: headless ? "new" : false,
-    protocolTimeout: 180000,
-    slowMo: 25,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-gpu",
-    ],
+  log("scrapeToIcs starting", {
+    techName,
+    timezone,
+    baseDateISO: baseDate.toISODate(),
+    headless,
+    writeIcs,
   });
 
-  const page = await browser.newPage();
-  page.setDefaultTimeout(180000);
-  page.setDefaultNavigationTimeout(180000);
+  let browser;
+  let page;
 
-  await page.setViewport({ width: 1280, height: 720 });
-
-  await page.setUserAgent(
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
-  );
-
-  await page.goto(loginUrl, { waitUntil: "domcontentloaded" });
-
-  const { user, pass, submit } = await findLoginFields(page);
-  const userSel = selectorFor(user);
-  const passSel = selectorFor(pass);
-  const submitSel = selectorFor(submit);
-
-  if (!userSel || !passSel || !submitSel) {
-    await browser.close();
-    throw new Error("Could not identify login fields. Hardcode selectors in scraper.js.");
-  }
-
-  await page.focus(userSel);
-  await page.keyboard.type(username, { delay: 10 });
-  await page.focus(passSel);
-  await page.keyboard.type(password, { delay: 10 });
-
-  await page.click(submitSel);
-  await new Promise((resolve) => setTimeout(resolve, 2000));
-
-  const scheduleUrl = buildScheduleUrl(techName, timezone, baseDate);
-
-  await page.goto(scheduleUrl);
-  await page.waitForSelector("#ctl00_ContentPlaceHolder1_GridView1", { timeout: 60000 });
-
-  const rows = await page.$$eval("#ctl00_ContentPlaceHolder1_GridView1 tr", (trs) => {
-    const out = [];
-    for (let i = 1; i < trs.length; i++) {
-      const tds = trs[i].querySelectorAll("td");
-      if (tds.length < 3) continue;
-      out.push({
-        day: tds[0].innerText.trim(),
-        date: tds[1].innerText.trim(),
-        desc: tds[2].innerText.replace(/\s+/g, " ").trim(),
-      });
-    }
-    return out;
-  });
-
-  if (!rows.length) {
-    await browser.close();
-    throw new Error("No schedule rows found. Login may have failed.");
-  }
-
-  // Build monthDays map keyed by YYYY-MM-DD
-  const monthDays = new Map();
-  for (const r of rows) {
-    const dt = parseMdyDate(r.date, timezone);
-    if (!dt) continue;
-    const iso = dt.toISODate();
-    monthDays.set(iso, {
-      date: iso,
-      dow: dt.toFormat("ccc"),
-      desc: r.desc,
-      isOff: /\bOFF\b/i.test(r.desc),
+  try {
+    browser = await puppeteer.launch({
+      headless: headless ? "new" : false,
+      protocolTimeout: 180000,
+      slowMo: 25,
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+      ],
     });
-  }
 
-  // Build sorted array for the whole month view
-  const monthDaysArr = Array.from(monthDays.values()).sort((a, b) =>
-    String(a.date).localeCompare(String(b.date))
-  );
+    page = await browser.newPage();
+    page.setDefaultTimeout(180000);
+    page.setDefaultNavigationTimeout(180000);
 
-  // Selected week is based on baseDate (still useful for UI)
-  const weekStart = mondayStart(baseDate);
+    await page.setViewport({ width: 1280, height: 720 });
 
-  // Build 7-day week array from monthDays (placeholders if missing)
-  const weekDays = [];
-  for (let i = 0; i < 7; i++) {
-    const dt = weekStart.plus({ days: i });
-    const iso = dt.toISODate();
-    const item = monthDays.get(iso);
+    await page.setUserAgent(
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
+    );
 
-    weekDays.push(
-      item || {
+    log("Opening login page:", loginUrl);
+    await page.goto(loginUrl, { waitUntil: "domcontentloaded", timeout: 120000 });
+
+    const { user, pass, submit } = await findLoginFields(page);
+    const userSel = selectorFor(user);
+    const passSel = selectorFor(pass);
+    const submitSel = selectorFor(submit);
+
+    log("Detected login selectors:", {
+      userSel,
+      passSel,
+      submitSel,
+    });
+
+    if (!userSel || !passSel || !submitSel) {
+      await writeDebugArtifacts(page, "login-fields-not-found");
+      throw new Error("Could not identify login fields. Hardcode selectors in scraper.js.");
+    }
+
+    await page.focus(userSel);
+    await page.keyboard.type(username, { delay: 10 });
+    await page.focus(passSel);
+    await page.keyboard.type(password, { delay: 10 });
+
+    log("Submitting login");
+    await Promise.allSettled([
+      page.waitForNavigation({ waitUntil: "networkidle2", timeout: 30000 }),
+      page.click(submitSel),
+    ]);
+
+    await page.waitForTimeout(2000);
+    log("After login URL:", page.url());
+
+    const scheduleUrl = buildScheduleUrl(techName, timezone, baseDate);
+    log("Navigating to schedule:", scheduleUrl);
+
+    await page.goto(scheduleUrl, { waitUntil: "networkidle2", timeout: 120000 });
+    await page.waitForTimeout(3000);
+    log("Schedule page URL:", page.url());
+
+    log("Waiting for schedule table");
+    try {
+      await page.waitForSelector("#ctl00_ContentPlaceHolder1_GridView1", { timeout: 60000 });
+      log("Schedule table found");
+    } catch (e) {
+      log("Schedule table not found within timeout");
+      await writeDebugArtifacts(page, "schedule-grid-missing");
+      throw new Error(
+        `Waiting for selector #ctl00_ContentPlaceHolder1_GridView1 failed on URL ${page.url()}`
+      );
+    }
+
+    const rows = await page.$$eval("#ctl00_ContentPlaceHolder1_GridView1 tr", (trs) => {
+      const out = [];
+      for (let i = 1; i < trs.length; i++) {
+        const tds = trs[i].querySelectorAll("td");
+        if (tds.length < 3) continue;
+        out.push({
+          day: tds[0].innerText.trim(),
+          date: tds[1].innerText.trim(),
+          desc: tds[2].innerText.replace(/\s+/g, " ").trim(),
+        });
+      }
+      return out;
+    });
+
+    log("Rows scraped:", rows.length);
+
+    if (!rows.length) {
+      await writeDebugArtifacts(page, "no-schedule-rows");
+      throw new Error("No schedule rows found. Login may have failed.");
+    }
+
+    const monthDays = new Map();
+    for (const r of rows) {
+      const dt = parseMdyDate(r.date, timezone);
+      if (!dt) {
+        log("Skipping invalid date row:", r.date, r.desc);
+        continue;
+      }
+      const iso = dt.toISODate();
+      monthDays.set(iso, {
         date: iso,
         dow: dt.toFormat("ccc"),
-        desc: "—",
-        isOff: false,
-      }
-    );
-  }
-
-  // Write ICS (optional)
-  if (writeIcs) {
-    const cal = ical({ name: "Work Schedule", timezone });
-
-    for (const d of weekDays) {
-      const dt = DateTime.fromISO(d.date, { zone: timezone });
-      cal.createEvent({
-        start: dt.toJSDate(),
-        end: dt.plus({ days: 1 }).toJSDate(),
-        allDay: true,
-        summary: d.isOff ? "OFF" : "Work",
-        description: d.desc,
+        desc: r.desc,
+        isOff: /\bOFF\b/i.test(r.desc),
       });
     }
 
-    fs.mkdirSync(path.dirname(outIcs), { recursive: true });
-    fs.writeFileSync(outIcs, cal.toString(), "utf8");
+    const monthDaysArr = Array.from(monthDays.values()).sort((a, b) =>
+      String(a.date).localeCompare(String(b.date))
+    );
+
+    const weekStart = mondayStart(baseDate);
+
+    const weekDays = [];
+    for (let i = 0; i < 7; i++) {
+      const dt = weekStart.plus({ days: i });
+      const iso = dt.toISODate();
+      const item = monthDays.get(iso);
+
+      weekDays.push(
+        item || {
+          date: iso,
+          dow: dt.toFormat("ccc"),
+          desc: "—",
+          isOff: false,
+        }
+      );
+    }
+
+    log("Computed ranges:", {
+      weekStart: weekStart.toISODate(),
+      monthDayCount: monthDaysArr.length,
+      weekDayCount: weekDays.length,
+    });
+
+    if (writeIcs) {
+      const cal = ical({ name: "Work Schedule", timezone });
+
+      for (const d of weekDays) {
+        const dt = DateTime.fromISO(d.date, { zone: timezone });
+        cal.createEvent({
+          start: dt.toJSDate(),
+          end: dt.plus({ days: 1 }).toJSDate(),
+          allDay: true,
+          summary: d.isOff ? "OFF" : "Work",
+          description: d.desc,
+        });
+      }
+
+      fs.mkdirSync(path.dirname(outIcs), { recursive: true });
+      fs.writeFileSync(outIcs, cal.toString(), "utf8");
+      log("ICS written:", outIcs);
+    }
+
+    log("scrapeToIcs success");
+
+    return {
+      scheduleUrl,
+      monthRowCount: rows.length,
+      weekRowCount: weekDays.length,
+      weekStart: weekStart.toISODate(),
+      outIcs: writeIcs ? outIcs : null,
+      days: monthDaysArr,
+      weekDays,
+    };
+  } catch (e) {
+    log("scrapeToIcs ERROR:", e);
+    throw e;
+  } finally {
+    try {
+      if (page) await page.close();
+    } catch (e) {
+      log("Error closing page:", e);
+    }
+
+    try {
+      if (browser) await browser.close();
+    } catch (e) {
+      log("Error closing browser:", e);
+    }
   }
-
-  await browser.close();
-
-  // IMPORTANT CHANGE:
-  // Return month days in `days`, so the MM front-end can pick any 7-day window.
-  return {
-    scheduleUrl,
-    monthRowCount: rows.length,
-
-    // still keep week info for compatibility/debug
-    weekRowCount: weekDays.length,
-    weekStart: weekStart.toISODate(),
-
-    outIcs: writeIcs ? outIcs : null,
-
-    // CHANGED:
-    days: monthDaysArr,
-
-    // keep these for debugging if you want
-    weekDays,
-  };
 }
 
 module.exports = { scrapeToIcs };
