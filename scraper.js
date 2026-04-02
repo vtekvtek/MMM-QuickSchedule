@@ -11,17 +11,19 @@ const DEBUG_PNG = "/tmp/qs-error.png";
 function log(...args) {
   const msg =
     `[${new Date().toISOString()}] ` +
-    args.map((a) => {
-      if (a instanceof Error) return a.stack || a.message;
-      if (typeof a === "object") {
-        try {
-          return JSON.stringify(a);
-        } catch {
-          return String(a);
+    args
+      .map((a) => {
+        if (a instanceof Error) return a.stack || a.message;
+        if (typeof a === "object") {
+          try {
+            return JSON.stringify(a);
+          } catch {
+            return String(a);
+          }
         }
-      }
-      return String(a);
-    }).join(" ");
+        return String(a);
+      })
+      .join(" ");
 
   console.log(msg);
   try {
@@ -29,6 +31,10 @@ function log(...args) {
   } catch (e) {
     console.error("Failed writing log:", e);
   }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function mondayStart(dt) {
@@ -80,11 +86,14 @@ async function findLoginFields(page) {
   const pick = (arr, hint) => {
     const h = hint.toLowerCase();
     return (
-      arr.find((x) =>
-        (x.id || "").toLowerCase().includes(h) ||
-        (x.name || "").toLowerCase().includes(h) ||
-        (x.placeholder || "").toLowerCase().includes(h)
-      ) || arr[0] || null
+      arr.find(
+        (x) =>
+          (x.id || "").toLowerCase().includes(h) ||
+          (x.name || "").toLowerCase().includes(h) ||
+          (x.placeholder || "").toLowerCase().includes(h)
+      ) ||
+      arr[0] ||
+      null
     );
   };
 
@@ -204,14 +213,14 @@ async function scrapeToIcs(config) {
       page.click(submitSel),
     ]);
 
-    await page.waitForTimeout(2000);
+    await sleep(2000);
     log("After login URL:", page.url());
 
     const scheduleUrl = buildScheduleUrl(techName, timezone, baseDate);
     log("Navigating to schedule:", scheduleUrl);
 
     await page.goto(scheduleUrl, { waitUntil: "networkidle2", timeout: 120000 });
-    await page.waitForTimeout(3000);
+    await sleep(3000);
     log("Schedule page URL:", page.url());
 
     log("Waiting for schedule table");
