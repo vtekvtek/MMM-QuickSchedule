@@ -224,12 +224,29 @@ async function scrapeToIcs(config) {
     log("Schedule page URL:", page.url());
 
     log("Waiting for schedule table");
+
     try {
       await page.waitForSelector("#ctl00_ContentPlaceHolder1_GridView1", { timeout: 60000 });
       log("Schedule table found");
     } catch (e) {
       log("Schedule table not found within timeout");
       await writeDebugArtifacts(page, "schedule-grid-missing");
+
+      // Soft-fail for the second/non-ICS scrape:
+      // if next month is not published yet, return an empty set instead of failing everything.
+      if (!writeIcs) {
+        log("No grid for non-ICS scrape, returning empty days");
+        return {
+          scheduleUrl: page.url(),
+          monthRowCount: 0,
+          weekRowCount: 0,
+          weekStart: mondayStart(baseDate).toISODate(),
+          outIcs: null,
+          days: [],
+          weekDays: [],
+        };
+      }
+
       throw new Error(
         `Waiting for selector #ctl00_ContentPlaceHolder1_GridView1 failed on URL ${page.url()}`
       );
@@ -253,6 +270,20 @@ async function scrapeToIcs(config) {
 
     if (!rows.length) {
       await writeDebugArtifacts(page, "no-schedule-rows");
+
+      if (!writeIcs) {
+        log("No rows for non-ICS scrape, returning empty days");
+        return {
+          scheduleUrl: page.url(),
+          monthRowCount: 0,
+          weekRowCount: 0,
+          weekStart: mondayStart(baseDate).toISODate(),
+          outIcs: null,
+          days: [],
+          weekDays: [],
+        };
+      }
+
       throw new Error("No schedule rows found. Login may have failed.");
     }
 
