@@ -237,7 +237,7 @@ module.exports = NodeHelper.create({
     }
 
     const now = DateTime.now().setZone(timezone);
-    let ms = Math.max(1000, next.toMillis() - now.toMillis());
+    const ms = Math.max(1000, next.toMillis() - now.toMillis());
 
     log("Next cron run scheduled", {
       cronExpr,
@@ -284,30 +284,32 @@ module.exports = NodeHelper.create({
     });
 
     try {
-      const [cur, nxt] = await Promise.all([
-        scrapeToIcs({
-          username: process.env.QS_USERNAME,
-          password: process.env.QS_PASSWORD,
-          loginUrl: process.env.QS_LOGIN_URL,
-          techName: process.env.TECH_NAME,
-          outIcs: process.env.OUT_ICS,
-          timezone,
-          headless: true,
-          baseDateISO: thisMonthBaseISO,
-          writeIcs: true,
-        }),
-        scrapeToIcs({
-          username: process.env.QS_USERNAME,
-          password: process.env.QS_PASSWORD,
-          loginUrl: process.env.QS_LOGIN_URL,
-          techName: process.env.TECH_NAME,
-          outIcs: process.env.OUT_ICS,
-          timezone,
-          headless: true,
-          baseDateISO: nextMonthBaseISO,
-          writeIcs: false,
-        }),
-      ]);
+      // Run sequentially to avoid session/login race conditions
+      log("Starting current month scrape");
+      const cur = await scrapeToIcs({
+        username: process.env.QS_USERNAME,
+        password: process.env.QS_PASSWORD,
+        loginUrl: process.env.QS_LOGIN_URL,
+        techName: process.env.TECH_NAME,
+        outIcs: process.env.OUT_ICS,
+        timezone,
+        headless: true,
+        baseDateISO: thisMonthBaseISO,
+        writeIcs: true,
+      });
+
+      log("Starting next month scrape");
+      const nxt = await scrapeToIcs({
+        username: process.env.QS_USERNAME,
+        password: process.env.QS_PASSWORD,
+        loginUrl: process.env.QS_LOGIN_URL,
+        techName: process.env.TECH_NAME,
+        outIcs: process.env.OUT_ICS,
+        timezone,
+        headless: true,
+        baseDateISO: nextMonthBaseISO,
+        writeIcs: false,
+      });
 
       const mergedDays = mergeDaysByDate(cur.days, nxt.days);
 
@@ -331,7 +333,10 @@ module.exports = NodeHelper.create({
 
       this.sendSocketNotification("WEEK_DATA", data);
     } catch (e) {
-      log("runScrape failed", { reason, error: e instanceof Error ? e.message : String(e) });
+      log("runScrape failed", {
+        reason,
+        error: e instanceof Error ? e.message : String(e),
+      });
 
       if (this.lastGood) {
         const cached = { ...this.lastGood, fresh: false };
