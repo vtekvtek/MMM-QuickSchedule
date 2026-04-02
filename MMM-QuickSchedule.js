@@ -12,18 +12,15 @@ Module.register("MMM-QuickSchedule", {
     this.week = null;
     this.error = null;
 
-    console.log("[MMM-QuickSchedule] start()");
     this.sendSocketNotification("CONFIG", this.config);
 
-    // One delayed refresh after startup, enough to recover from startup timing issues
+    // One delayed refresh to handle startup timing
     setTimeout(() => {
-      console.log("[MMM-QuickSchedule] startup FORCE_REFRESH");
       this.sendSocketNotification("FORCE_REFRESH");
     }, 4000);
   },
 
   resume() {
-    console.log("[MMM-QuickSchedule] resume(), FORCE_REFRESH");
     this.sendSocketNotification("FORCE_REFRESH");
   },
 
@@ -32,8 +29,6 @@ Module.register("MMM-QuickSchedule", {
   },
 
   socketNotificationReceived(notification, payload) {
-    console.log("[MMM-QuickSchedule] socketNotificationReceived:", notification, payload);
-
     if (notification === "WEEK_DATA") {
       this.week = payload;
       this.error = null;
@@ -76,7 +71,9 @@ Module.register("MMM-QuickSchedule", {
     if (this.error && !this.week) {
       const err = document.createElement("div");
       err.className = "qs-error";
-      err.textContent = (this.error && this.error.error) ? this.error.error : "Error loading schedule";
+      err.textContent = (this.error && this.error.error)
+        ? this.error.error
+        : "Error loading schedule";
       wrapper.appendChild(err);
       return wrapper;
     }
@@ -99,7 +96,6 @@ Module.register("MMM-QuickSchedule", {
       }
     }
 
-    // Weekend logic: Sat/Sun show next ISO week, otherwise this ISO week
     const now = moment.tz(this.config.timezone);
     const isoDowNow = now.isoWeekday();
     const isWeekendNow = (isoDowNow === 6 || isoDowNow === 7);
@@ -122,7 +118,6 @@ Module.register("MMM-QuickSchedule", {
 
       const item = byDate.get(dateKey);
 
-      // Missing future entries show TBD, missing past/today show —
       const isMissing = !item || !item.desc;
       const isFuture = m.isAfter(now, "day");
       const descRaw = isMissing ? (isFuture ? "TBD" : "—") : item.desc;
